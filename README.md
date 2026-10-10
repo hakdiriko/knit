@@ -3,7 +3,15 @@
 A zero-setup audio effect (VST3, plus AU on macOS) built with JUCE. Put it on any track and turn anything.
 The repository is called `knit`; the plug-in is called **viber**.
 
-**Status: Phase 0.** The plug-in is a clean passthrough: it loads, saves and recalls, but does not change the sound yet.
+**Status: Phase 1 (the network).** Four nodes (Echo, Resonator, Shift, Memory) feed each other. Knobs:
+
+| Knob | What you hear |
+|---|---|
+| Ecology | how much the parts talk: colour → space → ringing → life (self-sustaining above ~75%) |
+| Size | small and close → huge and far |
+| Tone | dark (downward spirals) ↔ bright (shimmer) |
+| Mix | dry ↔ wet, equal power |
+| Output | trim after the automatic level matching |
 
 Built for and tested on:
 - Windows 11 Pro 64-bit (build 26200)
