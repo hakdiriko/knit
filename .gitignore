@@ -1,0 +1,8 @@
+build/
+cmake-build-*/
+.vs/
+.vscode/
+.idea/
+.DS_Store
+__pycache__/
+audit_report.md

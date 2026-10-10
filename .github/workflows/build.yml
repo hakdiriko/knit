@@ -1,0 +1,111 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLUGINVAL_VERSION: v1.0.4
+  PLUGINVAL_STRICTNESS: 10
+  ARTEFACTS: build/viber_artefacts/Release
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-2022
+          - name: macos
+            os: macos-14
+          - name: linux
+            os: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Download pluginval
+        run: |
+          case "${{ runner.os }}" in
+            Windows) zip=pluginval_Windows.zip; bin=./pluginval.exe ;;
+            macOS)   zip=pluginval_macOS.zip;   bin=./pluginval.app/Contents/MacOS/pluginval ;;
+            Linux)   zip=pluginval_Linux.zip;   bin=./pluginval ;;
+          esac
+          curl -sSLf -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${zip}"
+          if [ "${{ runner.os }}" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
+          echo "PLUGINVAL=$bin" >> "$GITHUB_ENV"
+
+      - name: pluginval (VST3)
+        run: |
+          cmd=("$PLUGINVAL" --strictness-level "$PLUGINVAL_STRICTNESS" --validate-in-process
+               --timeout-ms 600000 --validate "$ARTEFACTS/VST3/viber.vst3")
+          if [ "${{ runner.os }}" = "Linux" ]; then xvfb-run -a "${cmd[@]}"; else "${cmd[@]}"; fi
+
+      - name: auval + pluginval (AU)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ARTEFACTS/AU/viber.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -strict -v aufx Vibr Hakd
+          "$PLUGINVAL" --strictness-level "$PLUGINVAL_STRICTNESS" --validate-in-process \
+            --timeout-ms 600000 --validate ~/Library/Audio/Plug-Ins/Components/viber.component
+
+      - name: Discovery audit
+        if: runner.os == 'Linux'
+        run: |
+          python3 -m pip install --user pedalboard numpy
+          xvfb-run -a python3 tools/discovery_audit.py "$ARTEFACTS/VST3/viber.vst3" --out audit_report.md
+          cat audit_report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload audit report
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report
+          path: audit_report.md
+          if-no-files-found: ignore
+
+      - name: Upload Windows VST3
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: viber-windows-vst3
+          path: ${{ env.ARTEFACTS }}/VST3/
+
+      - name: Package macOS plug-ins
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent "$ARTEFACTS/VST3/viber.vst3" dist/viber-vst3.zip
+          ditto -c -k --keepParent "$ARTEFACTS/AU/viber.component" dist/viber-au.zip
+
+      - name: Upload macOS VST3 + AU
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: viber-macos-vst3-au
+          path: dist/
