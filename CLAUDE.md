@@ -8,7 +8,7 @@ Read before working:
 - Use the `audio-plugin-dev` skill for all plug-in code.
 
 Layout:
-- `Source/`: plug-in code (`PluginProcessor`, `PluginEditor`).
+- `Source/`: plug-in code (`PluginProcessor`, `PluginEditor`); `Source/dsp/` holds the network (`Network`), output chain (`OutputChain`) and primitives.
 - `tools/discovery_audit.py`: sweeps a built VST3 for blow-ups, silence, dead zones and level jumps.
 - `.github/workflows/build.yml`: builds Windows, macOS and Linux, runs pluginval at strictness 10, runs the audit on Linux.
 - `DECISIONS.md` (one line per decision, plus why) and `CHANGELOG.md`: keep both current.

@@ -1,0 +1,283 @@
+#include "Network.h"
+
+namespace viber::dsp
+{
+namespace
+{
+    constexpr float golden = 1.6180339f;
+    constexpr float inputGain = 0.5f;
+    constexpr float wetGain = 2.0f; // make-up after the loops; auto-gain does the fine matching
+    constexpr float starveGain = 0.8f;
+
+    // Node order: Echo, Resonator, Shift, Memory.
+    constexpr std::array<float, 4> nodeLevel     { 1.0f, 0.55f, 0.7f, 0.8f };
+    constexpr std::array<float, 4> panBase       { -0.6f, 0.3f, -0.3f, 0.6f };
+    constexpr std::array<float, 4> lowpassScale  { 1.0f, 1.4f, 0.8f, 0.9f };
+    constexpr std::array<float, 4> lowpassQ      { 0.6f, 0.707f, 0.6f, 0.6f };
+    constexpr std::array<float, 4> diffuserMs    { 13.7f, 1.3f, 9.1f, 17.3f };
+    constexpr std::array<float, 4> diffuserScale { 1.0f, 0.3f, 1.0f, 1.0f };
+    constexpr std::array<float, 4> driftDepth    { 0.004f, 0.0025f, 0.003f, 0.0f };
+    constexpr std::array<float, 4> glideSeconds  { 0.3f, 0.06f, 0.25f, 0.4f };
+
+    // ---- Ecology: colour (0-30%) -> space (30-60%) -> ringing (60-80%) -> life (80-100%).
+    // Each node crosses loop gain 1.0 at a slightly different point (70-76%), so the
+    // tipping point into self-oscillation is a blur, never a step.
+    constexpr std::array<Breakpoint, 5> couplingPath {{ { 0.0f, 0.05f }, { 0.3f, 0.2f }, { 0.6f, 0.85f }, { 0.8f, 1.0f }, { 1.0f, 1.0f } }};
+    constexpr std::array<Breakpoint, 4> diffusionPath {{ { 0.0f, 0.0f }, { 0.3f, 0.25f }, { 0.6f, 0.6f }, { 1.0f, 0.65f } }};
+    constexpr std::array<Breakpoint, 3> ecologyDrivePath {{ { 0.0f, 1.0f }, { 0.6f, 1.0f }, { 1.0f, 1.8f } }};
+
+    constexpr std::array<std::array<Breakpoint, 5>, 4> loopGainPath {{
+        {{ { 0.0f, 0.30f }, { 0.3f, 0.50f }, { 0.6f, 0.82f }, { 0.73f, 1.0f }, { 1.0f, 1.18f } }}, // Echo
+        {{ { 0.0f, 0.55f }, { 0.3f, 0.75f }, { 0.6f, 0.93f }, { 0.70f, 1.0f }, { 1.0f, 1.12f } }}, // Resonator
+        {{ { 0.0f, 0.20f }, { 0.3f, 0.40f }, { 0.6f, 0.75f }, { 0.75f, 1.0f }, { 1.0f, 1.15f } }}, // Shift
+        {{ { 0.0f, 0.25f }, { 0.3f, 0.45f }, { 0.6f, 0.78f }, { 0.76f, 1.0f }, { 1.0f, 1.16f } }}, // Memory
+    }};
+
+    float smoothstep (float x) noexcept { return x * x * (3.0f - 2.0f * x); }
+} // namespace
+
+void Network::prepare (double sampleRate)
+{
+    sr = (float) sampleRate;
+
+    lines[echo].prepare ((int) (1.2f * sr));
+    lines[resonator].prepare ((int) (0.03f * sr));
+    lines[shift].prepare ((int) (0.65f * sr));
+    lines[memory].prepare ((int) (3.4f * sr));
+
+    const float controlRate = sr / (float) controlInterval;
+
+    for (int k = 0; k < numNodes; ++k)
+    {
+        diffusers[(size_t) k].prepare ((int) (diffuserMs[(size_t) k] * 0.001f * sr));
+        dcBlock[(size_t) k].prepare (sr);
+        // Golden-ratio spaced periods: the drifts never line up, so motion never repeats.
+        drift[(size_t) k].prepare (controlRate, 1.3f * std::pow (golden, (float) k), 0x51ed27u + 7919u * (uint32_t) k);
+        glideCoef[(size_t) k] = 1.0f - std::exp (-1.0f / (glideSeconds[(size_t) k] * sr));
+    }
+
+    ecologySm.reset (controlRate, 0.06);
+    sizeSm.reset (controlRate, 0.06);
+    toneSm.reset (controlRate, 0.06);
+
+    envAttack = 1.0f - std::exp (-1.0f / (0.005f * sr));
+    envRelease = 1.0f - std::exp (-1.0f / (1.5f * sr));
+    presenceCoef = 1.0f - std::exp (-1.0f / (2.0f * controlRate));
+
+    reset();
+}
+
+void Network::reset()
+{
+    for (int k = 0; k < numNodes; ++k)
+    {
+        lines[(size_t) k].reset();
+        diffusers[(size_t) k].reset();
+        lowpass[(size_t) k].reset();
+        highpass[(size_t) k].reset();
+        dcBlock[(size_t) k].reset();
+        drift[(size_t) k].reset();
+    }
+
+    ecologySm.setCurrentAndTargetValue (ecologySm.getTargetValue());
+    sizeSm.setCurrentAndTargetValue (sizeSm.getTargetValue());
+    toneSm.setCurrentAndTargetValue (toneSm.getTargetValue());
+
+    phaseUp = phaseDown = 0.0f;
+    inputEnvelope = 0.0f;
+    presence = 1.0f;
+    controlCounter = 0;
+    snapOnNextUpdate = true;
+    updateControl();
+
+    grainRng.seed (0x2545f491u);
+    for (size_t v = 0; v < grains.size(); ++v)
+    {
+        grains[v].length = grainLength;
+        grains[v].age = (int) v * grainLength / (int) grains.size();
+        grains[v].delay = currentDelay[memory] * (0.25f + 0.75f * grainRng.next01());
+    }
+}
+
+void Network::setMacros (float ecology, float size, float tone) noexcept
+{
+    ecologySm.setTargetValue (ecology);
+    sizeSm.setTargetValue (size);
+    toneSm.setTargetValue (tone);
+}
+
+void Network::updateControl() noexcept
+{
+    const float e = ecologySm.getNextValue();
+    const float s = sizeSm.getNextValue();
+    const float t = toneSm.getNextValue();
+
+    // Starvation: input level -> presence (0 below -75 dBFS, 1 above -55 dBFS).
+    const float envDb = 20.0f * std::log10 (inputEnvelope + 1.0e-9f);
+    const float present = juce::jlimit (0.0f, 1.0f, (envDb + 75.0f) / 20.0f);
+    presence += presenceCoef * (present - presence);
+
+    // ---- Ecology
+    coupling = evalPath (couplingPath, e);
+    diffusion = evalPath (diffusionPath, e);
+    const float ecologyDrive = evalPath (ecologyDrivePath, e);
+
+    for (size_t k = 0; k < (size_t) numNodes; ++k)
+    {
+        const float g = evalPath (loopGainPath[k], e);
+        loopGain[k] = g > starveGain ? starveGain + (g - starveGain) * presence : g;
+    }
+
+    // ---- Size: small and close -> huge and far.
+    const float echoSeconds = expMap (0.07f, 1.0f, s);
+    const float resonatorHz = expMap (520.0f, 65.0f, s);
+    const float shiftSeconds = expMap (0.04f, 0.45f, s);
+    shiftWindow = expMap (0.05f, 0.12f, s) * sr;
+    grainLength = (int) (expMap (0.05f, 0.26f, s) * sr);
+    const float memorySeconds = expMap (0.2f, 2.6f, s);
+    const float spread = 0.25f + 0.75f * s;
+    const float damping = expMap (1.0f, 0.55f, s);
+
+    targetDelay[echo] = echoSeconds * sr * (1.0f + driftDepth[echo] * drift[echo].tick());
+    targetDelay[resonator] = sr / resonatorHz * (1.0f + driftDepth[resonator] * drift[resonator].tick());
+    targetDelay[shift] = shiftSeconds * sr * (1.0f + driftDepth[shift] * drift[shift].tick());
+    targetDelay[memory] = memorySeconds * sr;
+    drift[memory].tick();
+
+    // ---- Tone: dark <-> bright tilt of the whole network.
+    const float lowpassHz = expMap (700.0f, 16000.0f, t) * damping;
+    const float highpassHz = expMap (25.0f, 160.0f, t);
+    const float toneDrive = expMap (0.8f, 2.0f, t);
+    const float balance = smoothstep (t);
+    shiftUpGain = std::sin (balance * 0.5f * pi);   // bright: shimmer (octave up)
+    shiftDownGain = std::cos (balance * 0.5f * pi); // dark: downward spirals (octave down)
+
+    for (size_t k = 0; k < (size_t) numNodes; ++k)
+    {
+        const float cutoff = std::min (lowpassHz * lowpassScale[k], 0.45f * sr);
+        lowpass[k].setCoefficients (cutoff, lowpassQ[k], sr);
+        highpass[k].setCutoff (highpassHz, sr);
+        drive[k] = toneDrive * ecologyDrive;
+
+        const float pan = panBase[k] * spread;
+        const float angle = (pan + 1.0f) * 0.25f * pi;
+        panL[k] = std::cos (angle);
+        panR[k] = std::sin (angle);
+        injectSide[k] = (panBase[k] < 0.0f ? 1.0f : -1.0f) * spread;
+
+        if (snapOnNextUpdate)
+            currentDelay[k] = targetDelay[k];
+    }
+
+    snapOnNextUpdate = false;
+}
+
+float Network::readShift() noexcept
+{
+    // Delay-line pitch shifter: a read head sweeping through a window at a steady
+    // rate plays faster (or slower) than the write head. Two heads half a window
+    // apart, each with a sine window, hide the wrap-around (equal-power crossfade).
+    const float window = shiftWindow;
+    const float base = currentDelay[shift];
+    auto& line = lines[shift];
+
+    phaseUp -= 1.0f / window; // delay shrinks by 1 sample per sample: read speed 2 (octave up)
+    if (phaseUp < 0.0f)
+        phaseUp += 1.0f;
+    phaseDown += 0.5f / window; // delay grows by 0.5 sample per sample: read speed 0.5 (octave down)
+    if (phaseDown >= 1.0f)
+        phaseDown -= 1.0f;
+
+    auto pair = [&] (float phase)
+    {
+        float other = phase + 0.5f;
+        if (other >= 1.0f)
+            other -= 1.0f;
+        return line.read (base + phase * window) * std::sin (pi * phase)
+             + line.read (base + other * window) * std::sin (pi * other);
+    };
+
+    return shiftUpGain * pair (phaseUp) + shiftDownGain * pair (phaseDown);
+}
+
+float Network::readMemory() noexcept
+{
+    // Four overlapping Hann-windowed grains, each replaying a random moment from the
+    // node's recent past. A grain's delay is fixed for its life, so it plays at 1x speed.
+    float sum = 0.0f;
+    auto& line = lines[memory];
+
+    for (auto& g : grains)
+    {
+        if (g.age >= g.length)
+        {
+            g.age = 0;
+            g.length = grainLength;
+            g.delay = currentDelay[memory] * (0.25f + 0.75f * grainRng.next01());
+        }
+
+        const float w = 0.5f - 0.5f * std::cos (2.0f * pi * (float) g.age / (float) g.length);
+        sum += w * line.read (g.delay);
+        ++g.age;
+    }
+
+    return 0.5f * sum;
+}
+
+void Network::process (const float* inL, const float* inR, float* outL, float* outR, int numSamples) noexcept
+{
+    for (int i = 0; i < numSamples; ++i)
+    {
+        if (controlCounter == 0)
+            updateControl();
+        if (++controlCounter >= controlInterval)
+            controlCounter = 0;
+
+        const float l = inL[i], r = inR[i];
+        const float mid = 0.5f * (l + r), side = 0.5f * (l - r);
+
+        const float level = std::max (std::abs (l), std::abs (r));
+        inputEnvelope += (level > inputEnvelope ? envAttack : envRelease) * (level - inputEnvelope);
+
+        // Tape glide: delay times move along a one-pole curve, so a change of Size
+        // bends the pitch of what's already in the loop, like a varispeed tape.
+        for (size_t k = 0; k < (size_t) numNodes; ++k)
+            currentDelay[k] += glideCoef[k] * (targetDelay[k] - currentDelay[k]);
+
+        std::array<float, numNodes> y {};
+        y[echo] = lines[echo].read (currentDelay[echo]);
+        y[resonator] = lines[resonator].read (currentDelay[resonator]);
+        y[shift] = readShift();
+        y[memory] = readMemory();
+
+        for (size_t k = 0; k < (size_t) numNodes; ++k)
+        {
+            float v = diffusers[k].process (y[k], diffusion * diffuserScale[k]);
+            v = lowpass[k].process (v);
+            v = highpass[k].process (v);
+            v = std::tanh (v * drive[k]) / drive[k]; // small-signal gain 1, bounded output
+            y[k] = dcBlock[k].process (v);
+        }
+
+        // Coupling: blend each node's own output with the Hadamard mix of all four.
+        const float h0 = 0.5f * (y[0] + y[1] + y[2] + y[3]);
+        const float h1 = 0.5f * (y[0] - y[1] + y[2] - y[3]);
+        const float h2 = 0.5f * (y[0] + y[1] - y[2] - y[3]);
+        const float h3 = 0.5f * (y[0] - y[1] - y[2] + y[3]);
+        const std::array<float, numNodes> h { h0, h1, h2, h3 };
+
+        float wl = 0.0f, wr = 0.0f;
+        for (size_t k = 0; k < (size_t) numNodes; ++k)
+        {
+            const float mixed = (1.0f - coupling) * y[k] + coupling * h[k];
+            lines[k].push (inputGain * (mid + side * injectSide[k]) + loopGain[k] * mixed);
+
+            wl += nodeLevel[k] * panL[k] * y[k];
+            wr += nodeLevel[k] * panR[k] * y[k];
+        }
+
+        outL[i] = wetGain * wl;
+        outR[i] = wetGain * wr;
+    }
+}
+} // namespace viber::dsp

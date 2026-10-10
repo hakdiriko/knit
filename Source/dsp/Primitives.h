@@ -1,0 +1,267 @@
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <vector>
+
+// Small real-time-safe DSP building blocks. Everything that allocates does so in
+// prepare(), never on the audio thread.
+namespace viber::dsp
+{
+constexpr float pi = 3.14159265358979f;
+
+//==============================================================================
+// Circular delay line with 4-point Hermite interpolation. Linear interpolation
+// dulls the highs and makes modulated delays grainy; Hermite keeps them clean.
+class DelayLine
+{
+public:
+    void prepare (int maxDelaySamples)
+    {
+        int size = 1;
+        while (size < maxDelaySamples + 8)
+            size <<= 1;
+        buffer.assign ((size_t) size, 0.0f);
+        mask = size - 1;
+        maxDelay = (float) (size - 4);
+        writeIndex = 0;
+    }
+
+    void reset()
+    {
+        std::fill (buffer.begin(), buffer.end(), 0.0f);
+        writeIndex = 0;
+    }
+
+    // Delay is measured from the most recently pushed sample (delay 1 = last sample).
+    float read (float delay) const noexcept
+    {
+        delay = delay < 2.0f ? 2.0f : (delay > maxDelay ? maxDelay : delay);
+        const auto whole = (int) delay;
+        const float t = 1.0f - (delay - (float) whole);
+        const int i = writeIndex - whole - 1;
+
+        const float xm1 = buffer[(size_t) ((i - 1) & mask)];
+        const float x0  = buffer[(size_t) (i & mask)];
+        const float x1  = buffer[(size_t) ((i + 1) & mask)];
+        const float x2  = buffer[(size_t) ((i + 2) & mask)];
+
+        const float c1 = 0.5f * (x1 - xm1);
+        const float c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2;
+        const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+        return ((c3 * t + c2) * t + c1) * t + x0;
+    }
+
+    void push (float x) noexcept
+    {
+        buffer[(size_t) writeIndex] = x;
+        writeIndex = (writeIndex + 1) & mask;
+    }
+
+private:
+    std::vector<float> buffer;
+    int mask = 0;
+    int writeIndex = 0;
+    float maxDelay = 2.0f;
+};
+
+//==============================================================================
+// Topology-preserving-transform state-variable lowpass (Zavalishin). Stays stable
+// and smooth when its cutoff moves every few samples.
+class SvfLowpass
+{
+public:
+    void setCoefficients (float cutoffHz, float q, float sampleRate) noexcept
+    {
+        const float g = std::tan (pi * cutoffHz / sampleRate);
+        const float k = 1.0f / q;
+        a1 = 1.0f / (1.0f + g * (g + k));
+        a2 = g * a1;
+        a3 = g * a2;
+    }
+
+    float process (float x) noexcept
+    {
+        const float v3 = x - ic2;
+        const float v1 = a1 * ic1 + a2 * v3;
+        const float v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1 = 2.0f * v1 - ic1;
+        ic2 = 2.0f * v2 - ic2;
+        return v2;
+    }
+
+    void reset() noexcept { ic1 = ic2 = 0.0f; }
+
+private:
+    float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f;
+    float ic1 = 0.0f, ic2 = 0.0f;
+};
+
+// One-pole highpass (6 dB/oct): keeps low-end mud from building up in a loop.
+class OnePoleHighpass
+{
+public:
+    void setCutoff (float cutoffHz, float sampleRate) noexcept
+    {
+        a = 1.0f - std::exp (-2.0f * pi * cutoffHz / sampleRate);
+    }
+
+    float process (float x) noexcept
+    {
+        s += a * (x - s);
+        return x - s;
+    }
+
+    void reset() noexcept { s = 0.0f; }
+
+private:
+    float a = 0.0f, s = 0.0f;
+};
+
+// DC blocker: y[n] = x[n] - x[n-1] + R * y[n-1]. Mandatory inside any saturated
+// feedback loop, where asymmetric clipping slowly builds up an offset.
+class DcBlocker
+{
+public:
+    void prepare (float sampleRate) noexcept { r = std::exp (-2.0f * pi * 8.0f / sampleRate); }
+
+    float process (float x) noexcept
+    {
+        const float y = x - x1 + r * y1;
+        x1 = x;
+        y1 = y;
+        return y;
+    }
+
+    void reset() noexcept { x1 = y1 = 0.0f; }
+
+private:
+    float r = 0.999f, x1 = 0.0f, y1 = 0.0f;
+};
+
+// Schroeder allpass: smears transients in time without colouring the long-term
+// spectrum. Unity gain at every frequency, so it never destabilises a loop.
+class Allpass
+{
+public:
+    void prepare (int delaySamples)
+    {
+        buffer.assign ((size_t) std::max (1, delaySamples), 0.0f);
+        index = 0;
+    }
+
+    void reset()
+    {
+        std::fill (buffer.begin(), buffer.end(), 0.0f);
+        index = 0;
+    }
+
+    float process (float x, float coefficient) noexcept
+    {
+        const float delayed = buffer[(size_t) index];
+        const float v = x - coefficient * delayed;
+        buffer[(size_t) index] = v;
+        index = (index + 1 == (int) buffer.size()) ? 0 : index + 1;
+        return coefficient * v + delayed;
+    }
+
+private:
+    std::vector<float> buffer;
+    int index = 0;
+};
+
+//==============================================================================
+// Deterministic RNG (xorshift32). Seeded explicitly so a render is repeatable.
+class Rng
+{
+public:
+    void seed (uint32_t s) noexcept { state = s != 0 ? s : 0x9e3779b9u; }
+
+    float next01() noexcept
+    {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return (float) (state >> 8) * (1.0f / 16777216.0f);
+    }
+
+    float nextBipolar() noexcept { return 2.0f * next01() - 1.0f; }
+
+private:
+    uint32_t state = 0x9e3779b9u;
+};
+
+// Smoothed random walk: a new random target every period, approached through a
+// one-pole lowpass. Unlike an LFO it never repeats, so the ear can't find the loop.
+class RandomWalk
+{
+public:
+    void prepare (float updateRateHz, float periodSeconds, uint32_t seed)
+    {
+        periodTicks = std::max (1, (int) (periodSeconds * updateRateHz));
+        coefficient = 1.0f - std::exp (-1.0f / (0.7f * (float) periodTicks));
+        seedValue = seed;
+        reset();
+    }
+
+    // Re-seeds, so every reset replays the same walk: renders are repeatable.
+    void reset() noexcept
+    {
+        rng.seed (seedValue);
+        value = 0.0f;
+        target = rng.nextBipolar();
+        ticks = 0;
+    }
+
+    // Call once per control tick; returns a value in roughly [-1, 1].
+    float tick() noexcept
+    {
+        if (++ticks >= periodTicks)
+        {
+            ticks = 0;
+            target = rng.nextBipolar();
+        }
+        value += coefficient * (target - value);
+        return value;
+    }
+
+private:
+    Rng rng;
+    uint32_t seedValue = 1;
+    int periodTicks = 1, ticks = 0;
+    float coefficient = 0.1f, value = 0.0f, target = 0.0f;
+};
+
+//==============================================================================
+// Macro paths: one knob drives many hidden parameters, each along its own curve.
+// Smoothstep between breakpoints, so there are no corners and no audible kinks.
+struct Breakpoint
+{
+    float x, y;
+};
+
+template <size_t N>
+float evalPath (const std::array<Breakpoint, N>& p, float x) noexcept
+{
+    if (x <= p[0].x)
+        return p[0].y;
+
+    for (size_t i = 1; i < N; ++i)
+        if (x <= p[i].x)
+        {
+            float t = (x - p[i - 1].x) / (p[i].x - p[i - 1].x);
+            t = t * t * (3.0f - 2.0f * t);
+            return p[i - 1].y + t * (p[i].y - p[i - 1].y);
+        }
+
+    return p[N - 1].y;
+}
+
+// Perceptual (exponential) mapping for frequencies and times.
+inline float expMap (float lo, float hi, float x) noexcept
+{
+    return lo * std::pow (hi / lo, x);
+}
+} // namespace viber::dsp
