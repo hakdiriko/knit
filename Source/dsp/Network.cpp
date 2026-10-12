@@ -34,6 +34,53 @@ namespace
     }};
 
     float smoothstep (float x) noexcept { return x * x * (3.0f - 2.0f * x); }
+
+    // ---- Sync: note values in quarter-note beats, shortest first (straight, triplet, dotted).
+    struct NoteValue
+    {
+        float beats;
+        const char* name;
+    };
+
+    constexpr std::array<NoteValue, 18> noteValues {{
+        { 0.0625f, "1/64" },       { 1.0f / 12.0f, "1/32 triplet" }, { 0.125f, "1/32" },
+        { 1.0f / 6.0f, "1/16 triplet" }, { 0.1875f, "1/32 dotted" }, { 0.25f, "1/16" },
+        { 1.0f / 3.0f, "1/8 triplet" },  { 0.375f, "1/16 dotted" },  { 0.5f, "1/8" },
+        { 2.0f / 3.0f, "1/4 triplet" },  { 0.75f, "1/8 dotted" },    { 1.0f, "1/4" },
+        { 4.0f / 3.0f, "1/2 triplet" },  { 1.5f, "1/4 dotted" },     { 2.0f, "1/2" },
+        { 8.0f / 3.0f, "1/1 triplet" },  { 3.0f, "1/2 dotted" },     { 4.0f, "1/1" },
+    }};
+
+    // Longest synced time per node, inside its buffer (the Shift node also needs room
+    // for its 0.12 s pitch-shift window).
+    constexpr float syncMinSeconds = 0.02f;
+    constexpr float echoSyncMaxSeconds = 1.15f;
+    constexpr float shiftSyncMaxSeconds = 0.5f;
+    constexpr float memorySyncMaxSeconds = 3.2f;
+
+    // The note value closest to `seconds` by ear (log distance) that fits [lo, hi],
+    // or -1 when none does (an extreme tempo): the node then stays free.
+    int nearestNote (float seconds, float beatSeconds, float lo, float hi) noexcept
+    {
+        int best = -1;
+        float bestDistance = 0.0f;
+
+        for (size_t i = 0; i < noteValues.size(); ++i)
+        {
+            const float t = noteValues[i].beats * beatSeconds;
+            if (t < lo || t > hi)
+                continue;
+
+            const float d = std::abs (std::log (t / seconds));
+            if (best < 0 || d < bestDistance)
+            {
+                best = (int) i;
+                bestDistance = d;
+            }
+        }
+
+        return best;
+    }
 } // namespace
 
 void Network::prepare (double sampleRate)
@@ -95,7 +142,7 @@ void Network::reset()
     {
         grains[v].length = grainLength;
         grains[v].age = (int) v * grainLength / (int) grains.size();
-        grains[v].delay = currentDelay[memory] * (0.25f + 0.75f * grainRng.next01());
+        grains[v].delay = nextGrainDelay();
     }
 }
 
@@ -104,6 +151,17 @@ void Network::setMacros (float ecology, float size, float tone) noexcept
     ecologySm.setTargetValue (ecology);
     sizeSm.setTargetValue (size);
     toneSm.setTargetValue (tone);
+}
+
+void Network::setSync (bool enabled, double bpm) noexcept
+{
+    syncEnabled = enabled;
+    beatSeconds = bpm > 0.0 ? (float) (60.0 / bpm) : 0.0f;
+}
+
+const char* Network::noteName (int index) noexcept
+{
+    return index >= 0 && index < (int) noteValues.size() ? noteValues[(size_t) index].name : "";
 }
 
 void Network::updateControl() noexcept
@@ -129,14 +187,35 @@ void Network::updateControl() noexcept
     }
 
     // ---- Size: small and close -> huge and far.
-    const float echoSeconds = expMap (0.07f, 1.0f, s);
+    float echoSeconds = expMap (0.07f, 1.0f, s);
     const float resonatorHz = expMap (520.0f, 65.0f, s);
-    const float shiftSeconds = expMap (0.04f, 0.45f, s);
+    float shiftSeconds = expMap (0.04f, 0.45f, s);
     shiftWindow = expMap (0.05f, 0.12f, s) * sr;
     grainLength = (int) (expMap (0.05f, 0.26f, s) * sr);
-    const float memorySeconds = expMap (0.2f, 2.6f, s);
+    float memorySeconds = expMap (0.2f, 2.6f, s);
     const float spread = 0.25f + 0.75f * s;
     const float damping = expMap (1.0f, 0.55f, s);
+
+    // ---- Sync: Size still chooses small or large; Sync rounds each time-based node to
+    // the nearest note value. Delay times keep gliding, so stepping from one note
+    // value to the next bends the pitch like tape.
+    echoNote = -1;
+    memorySynced = false;
+
+    if (syncEnabled && beatSeconds > 0.0f)
+    {
+        const auto snap = [this] (float& seconds, float hi)
+        {
+            const int note = nearestNote (seconds, beatSeconds, syncMinSeconds, hi);
+            if (note >= 0)
+                seconds = noteValues[(size_t) note].beats * beatSeconds;
+            return note;
+        };
+
+        echoNote = snap (echoSeconds, echoSyncMaxSeconds);
+        snap (shiftSeconds, shiftSyncMaxSeconds);
+        memorySynced = snap (memorySeconds, memorySyncMaxSeconds) >= 0;
+    }
 
     targetDelay[echo] = echoSeconds * sr * (1.0f + driftDepth[echo] * drift[echo].tick());
     targetDelay[resonator] = sr / resonatorHz * (1.0f + driftDepth[resonator] * drift[resonator].tick());
@@ -213,7 +292,7 @@ float Network::readMemory() noexcept
         {
             g.age = 0;
             g.length = grainLength;
-            g.delay = currentDelay[memory] * (0.25f + 0.75f * grainRng.next01());
+            g.delay = nextGrainDelay();
         }
 
         const float w = 0.5f - 0.5f * std::cos (2.0f * pi * (float) g.age / (float) g.length);
@@ -222,6 +301,18 @@ float Network::readMemory() noexcept
     }
 
     return 0.5f * sum;
+}
+
+float Network::nextGrainDelay() noexcept
+{
+    const float r = grainRng.next01();
+
+    // Synced: one to four quarters of the reach (itself a note value), so a replayed
+    // moment lands back on the grid. Free: anywhere in the last 25-100% of the reach.
+    if (memorySynced)
+        return targetDelay[memory] * 0.25f * (1.0f + std::floor (r * 3.999f));
+
+    return currentDelay[memory] * (0.25f + 0.75f * r);
 }
 
 void Network::process (const float* inL, const float* inR, float* outL, float* outR, int numSamples) noexcept

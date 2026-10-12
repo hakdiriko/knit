@@ -12,6 +12,7 @@ The repository is called `knit`; the plug-in is called **viber**.
 | Tone | dark (downward spirals) ↔ bright (shimmer) |
 | Mix | dry ↔ wet, equal power |
 | Output | trim after the automatic level matching |
+| Sync | locks Echo, Shift and Memory to the host tempo; Size picks the note value |
 
 Built for and tested on:
 - Windows 11 Pro 64-bit (build 26200)

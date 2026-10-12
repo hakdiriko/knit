@@ -13,6 +13,7 @@ inline constexpr auto tone    = "tone";
 inline constexpr auto mix     = "mix";
 inline constexpr auto output  = "output";
 inline constexpr auto bypass  = "bypass";
+inline constexpr auto sync    = "sync";
 } // namespace ParamIDs
 
 // Phase 1: the network. Signal flow:
@@ -55,9 +56,15 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
+    // For the window: the Echo node's note value while Sync is on (-1 when free),
+    // and whether the host reports a tempo at all.
+    std::atomic<int> echoNoteForUi { -1 };
+    std::atomic<bool> hostHasTempo { false };
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void resetDsp();
+    double hostBpm() const;
 
     static constexpr int subBlock = 64;
 
@@ -66,6 +73,7 @@ private:
     std::atomic<float>* toneParam = nullptr;
     std::atomic<float>* mixParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
+    std::atomic<float>* syncParam = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
 
     viber::dsp::Network network;

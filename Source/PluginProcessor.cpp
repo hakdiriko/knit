@@ -30,6 +30,7 @@ ViberProcessor::ViberProcessor()
     toneParam = parameters.getRawParameterValue (ParamIDs::tone);
     mixParam = parameters.getRawParameterValue (ParamIDs::mix);
     outputParam = parameters.getRawParameterValue (ParamIDs::output);
+    syncParam = parameters.getRawParameterValue (ParamIDs::sync);
     bypassParam = dynamic_cast<juce::AudioParameterBool*> (parameters.getParameter (ParamIDs::bypass));
     jassert (bypassParam != nullptr);
 }
@@ -56,7 +57,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout ViberProcessor::createParame
                                          juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f,
                                          Attributes().withStringFromValueFunction (decibels)
                                                      .withLabel ("dB")),
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::bypass, 1 }, "Bypass", false));
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::bypass, 1 }, "Bypass", false),
+                // Added in 0.1.1, so version hint 2 (AU keeps parameter order by it).
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::sync, 2 }, "Sync", false));
     return layout;
 }
 
@@ -81,8 +84,20 @@ void ViberProcessor::reset()
     resetDsp();
 }
 
+double ViberProcessor::hostBpm() const
+{
+    // Real-time safe: getPosition() only copies the host's transport state.
+    if (auto* head = getPlayHead())
+        if (const auto position = head->getPosition())
+            if (const auto bpm = position->getBpm())
+                return *bpm;
+
+    return 0.0;
+}
+
 void ViberProcessor::resetDsp()
 {
+    network.setSync (syncParam->load() >= 0.5f, hostBpm());
     network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
     network.reset();
     autoGain.reset();
@@ -115,6 +130,8 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     if (numIn == 0 || numSamples == 0)
         return;
 
+    const double bpm = hostBpm();
+    network.setSync (syncParam->load() >= 0.5f, bpm);
     network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
     mixSm.setTargetValue (mixParam->load());
     trimSm.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
@@ -164,6 +181,9 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
             }
         }
     }
+
+    echoNoteForUi.store (network.getEchoNote(), std::memory_order_relaxed);
+    hostHasTempo.store (bpm > 0.0, std::memory_order_relaxed);
 
     // NaN/Inf guard: never hand a non-finite sample to the host. Silence this block
     // and start the network from scratch.
