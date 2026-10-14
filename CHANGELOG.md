@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 (test: Sync)
+
+- New **Sync** switch under Size (off by default, so existing sets sound the same). When it's on, the Echo, Shift and Memory delay times snap to the note value nearest to where Size puts them at the host tempo: straight, dotted or triplet, from 1/64 to a whole note. Size still means small to large; Sync rounds it to the grid.
+- The Resonator stays free, so it keeps its pitch.
+- Memory grains replay moments one to four quarters of their reach back, so replays land on the grid too.
+- Delay times still glide, so stepping Size from one note value to the next bends the pitch like tape, and tempo changes follow smoothly.
+- The switch shows the Echo node's note value (for example "Sync: 1/8 dotted"), or "no tempo" when the host doesn't send one; viber then stays free.
+- The window is 30 px taller to fit the switch.
+
 ## 0.1.0 (Phase 1: the network)
 
 - viber now makes sound: four nodes (**Echo**, **Resonator**, **Shift**, **Memory**) that feed each other through a coupling matrix.

@@ -28,6 +28,15 @@ public:
     // Targets for the three macros, each 0..1. Smoothed internally.
     void setMacros (float ecology, float size, float tone) noexcept;
 
+    // Sync: the Echo, Shift and Memory delay times snap to the note value nearest to
+    // where Size puts them, at the host tempo. bpm <= 0 (no play head or no tempo)
+    // leaves them free. The Resonator always stays free, so it keeps its pitch.
+    void setSync (bool enabled, double bpm) noexcept;
+
+    // The Echo node's current note value as an index for noteName(), or -1 when free.
+    int getEchoNote() const noexcept { return echoNote; }
+    static const char* noteName (int index) noexcept;
+
     // Renders one sub-block of wet signal. inL/inR may alias (mono).
     void process (const float* inL, const float* inR, float* outL, float* outR, int numSamples) noexcept;
 
@@ -35,6 +44,7 @@ private:
     void updateControl() noexcept;
     float readShift() noexcept;
     float readMemory() noexcept;
+    float nextGrainDelay() noexcept;
 
     float sr = 48000.0f;
     static constexpr int controlInterval = 16;
@@ -42,6 +52,10 @@ private:
     bool snapOnNextUpdate = true;
 
     juce::SmoothedValue<float> ecologySm, sizeSm, toneSm;
+
+    bool syncEnabled = false, memorySynced = false;
+    float beatSeconds = 0.0f;
+    int echoNote = -1;
 
     std::array<DelayLine, numNodes> lines;
     std::array<Allpass, numNodes> diffusers;

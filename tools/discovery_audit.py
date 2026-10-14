@@ -34,7 +34,8 @@ JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim")  # params not expected to change character
+SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync")  # params not expected to change character
+# "sync" needs a host tempo, and pedalboard has no play head, so it is a no-op here.
 
 
 # ---------------------------------------------------------------- test signals

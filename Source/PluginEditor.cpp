@@ -20,6 +20,9 @@ ViberEditor::ViberEditor (ViberProcessor& p)
     lookAndFeel.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     lookAndFeel.setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     lookAndFeel.setColour (juce::Label::textColourId, text);
+    lookAndFeel.setColour (juce::ToggleButton::textColourId, text);
+    lookAndFeel.setColour (juce::ToggleButton::tickColourId, accent);
+    lookAndFeel.setColour (juce::ToggleButton::tickDisabledColourId, dim);
     setLookAndFeel (&lookAndFeel);
 
     setUpKnob (ecology, ParamIDs::ecology, "Ecology", "How much the parts talk: colour, space, ringing, life");
@@ -28,7 +31,13 @@ ViberEditor::ViberEditor (ViberProcessor& p)
     setUpKnob (mix, ParamIDs::mix, "Mix", "Dry to wet, equal power");
     setUpKnob (output, ParamIDs::output, "Output", "Trim after auto-gain");
 
-    setSize (640, 300);
+    syncButton.setButtonText ("Sync");
+    syncButton.setTooltip ("Locks Echo, Shift and Memory to the host tempo; Size picks the note value");
+    addAndMakeVisible (syncButton);
+    syncAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (processor.parameters, ParamIDs::sync, syncButton);
+
+    setSize (640, 330);
+    startTimerHz (10);
 }
 
 ViberEditor::~ViberEditor()
@@ -50,6 +59,25 @@ void ViberEditor::setUpKnob (Knob& knob, const juce::String& paramID, const juce
 
     // The attachment also sets double-click-to-default and the value text.
     knob.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.parameters, paramID, knob.slider);
+}
+
+void ViberEditor::timerCallback()
+{
+    // While Sync is on, the switch also names the Echo node's note value.
+    juce::String label ("Sync");
+
+    if (syncButton.getToggleState())
+    {
+        const int note = processor.echoNoteForUi.load (std::memory_order_relaxed);
+
+        if (! processor.hostHasTempo.load (std::memory_order_relaxed))
+            label << ": no tempo";
+        else if (note >= 0)
+            label << ": " << viber::dsp::Network::noteName (note);
+    }
+
+    if (syncButton.getButtonText() != label)
+        syncButton.setButtonText (label);
 }
 
 void ViberEditor::paint (juce::Graphics& g)
@@ -74,7 +102,11 @@ void ViberEditor::resized()
     area.removeFromTop (52);
 
     auto outputArea = area.removeFromRight (100);
+    auto syncRow = area.removeFromBottom (30);
     const int column = area.getWidth() / 4;
+
+    // Sync sits under Size (it is Size's time base); the extra width fits the note name.
+    syncButton.setBounds (syncRow.withX (area.getX() + column).withWidth (2 * column).reduced (6, 3));
 
     for (auto* knob : { &ecology, &size, &tone, &mix })
     {
