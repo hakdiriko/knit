@@ -1,6 +1,6 @@
 #include "Network.h"
 
-namespace viber::dsp
+namespace dendrite::dsp
 {
 namespace
 {
@@ -103,6 +103,11 @@ void Network::prepare (double sampleRate)
         glideCoef[(size_t) k] = 1.0f - std::exp (-1.0f / (glideSeconds[(size_t) k] * sr));
     }
 
+    itch.prepare (sr, controlRate);
+    fadeStep = 1.0f / (0.025f * sr);
+    brakeCatchUp = std::exp (-1.0f / (0.35f * sr));
+    brakeLimit = 1.1f * sr; // stays inside the Echo buffer at any Size
+
     ecologySm.reset (controlRate, 0.06);
     sizeSm.reset (controlRate, 0.06);
     toneSm.reset (controlRate, 0.06);
@@ -132,6 +137,10 @@ void Network::reset()
 
     phaseUp = phaseDown = 0.0f;
     inputEnvelope = 0.0f;
+    itch.reset();
+    fadePos.fill (1.0f);
+    brakeOffset = 0.0f;
+    grabElapsed = 0;
     presence = 1.0f;
     controlCounter = 0;
     snapOnNextUpdate = true;
@@ -153,6 +162,12 @@ void Network::setMacros (float ecology, float size, float tone) noexcept
     toneSm.setTargetValue (tone);
 }
 
+void Network::setItch (float amount, bool knobsMoving) noexcept
+{
+    itch.setAmount (amount);
+    itch.setKnobsMoving (knobsMoving);
+}
+
 void Network::setSync (bool enabled, double bpm) noexcept
 {
     syncEnabled = enabled;
@@ -170,25 +185,35 @@ void Network::updateControl() noexcept
     const float s = sizeSm.getNextValue();
     const float t = toneSm.getNextValue();
 
+    itch.tick (e);
+    const auto& mods = itch.getMods();
+
     // Starvation: input level -> presence (0 below -75 dBFS, 1 above -55 dBFS).
     const float envDb = 20.0f * std::log10 (inputEnvelope + 1.0e-9f);
     const float present = juce::jlimit (0.0f, 1.0f, (envDb + 75.0f) / 20.0f);
     presence += presenceCoef * (present - presence);
 
     // ---- Ecology
-    coupling = evalPath (couplingPath, e);
+    coupling = std::min (1.0f, evalPath (couplingPath, e) + mods.couplingAdd);
     diffusion = evalPath (diffusionPath, e);
     const float ecologyDrive = evalPath (ecologyDrivePath, e);
 
     for (size_t k = 0; k < (size_t) numNodes; ++k)
     {
         const float g = evalPath (loopGainPath[k], e);
-        loopGain[k] = g > starveGain ? starveGain + (g - starveGain) * presence : g;
+        const float fed = g > starveGain ? starveGain + (g - starveGain) * presence : g;
+        // Scratches push or cut the loops; the saturators keep anything above 1 bounded.
+        const float push = mods.loopAdd + (k == (size_t) echo ? mods.echoLoopAdd : 0.0f);
+        loopGain[k] = std::min (1.25f, (fed + push) * mods.loopScale);
     }
+
+    echoSendGain = 1.0f + mods.echoSend;
 
     // ---- Size: small and close -> huge and far.
     float echoSeconds = expMap (0.07f, 1.0f, s);
-    const float resonatorHz = expMap (520.0f, 65.0f, s);
+    // Retune glides the Resonator to a new interval; a detune scar shifts it slightly.
+    const float resonatorHz = std::clamp (expMap (520.0f, 65.0f, s) * mods.retuneRatio
+                                              * std::exp2 (mods.scarDetune / 12.0f), 40.0f, 2000.0f);
     float shiftSeconds = expMap (0.04f, 0.45f, s);
     shiftWindow = expMap (0.05f, 0.12f, s) * sr;
     grainLength = (int) (expMap (0.05f, 0.26f, s) * sr);
@@ -217,9 +242,30 @@ void Network::updateControl() noexcept
         memorySynced = snap (memorySeconds, memorySyncMaxSeconds) >= 0;
     }
 
-    targetDelay[echo] = echoSeconds * sr * (1.0f + driftDepth[echo] * drift[echo].tick());
-    targetDelay[resonator] = sr / resonatorHz * (1.0f + driftDepth[resonator] * drift[resonator].tick());
-    targetDelay[shift] = shiftSeconds * sr * (1.0f + driftDepth[shift] * drift[shift].tick());
+    // An echo scar nudges the Echo time, only when free (it would pull Sync off the grid).
+    if (echoNote < 0)
+        echoSeconds *= 1.0f + mods.scarEcho;
+
+    // Lurch: Echo and Shift jump by a ratio (x2, x0.5, x1.5, x0.75), halved until it fits.
+    if (std::abs (mods.lurchRatio - 1.0f) > 1.0e-6f)
+    {
+        const auto fit = [] (float seconds, float ratio, float hi)
+        {
+            while (seconds * ratio > hi && ratio > 0.25f)
+                ratio *= 0.5f;
+            return seconds * ratio;
+        };
+        echoSeconds = fit (echoSeconds, mods.lurchRatio, echoSyncMaxSeconds);
+        shiftSeconds = fit (shiftSeconds, mods.lurchRatio, shiftSyncMaxSeconds);
+    }
+
+    jumpMode = (syncJump && echoNote >= 0) || itch.getActiveGesture() == Itch::lurch;
+
+    // The fixed drift keeps the loops from ringing metallic; the breathing rides on top.
+    const auto& b = mods.breath;
+    targetDelay[echo] = echoSeconds * sr * (1.0f + driftDepth[echo] * drift[echo].tick() + 0.0035f * b[echo]);
+    targetDelay[resonator] = sr / resonatorHz * (1.0f + driftDepth[resonator] * drift[resonator].tick() + 0.0015f * b[resonator]);
+    targetDelay[shift] = shiftSeconds * sr * (1.0f + driftDepth[shift] * drift[shift].tick() + 0.0035f * b[shift]);
     targetDelay[memory] = memorySeconds * sr;
     drift[memory].tick();
 
@@ -233,7 +279,10 @@ void Network::updateControl() noexcept
 
     for (size_t k = 0; k < (size_t) numNodes; ++k)
     {
-        const float cutoff = std::min (lowpassHz * lowpassScale[k], 0.45f * sr);
+        // Breathing opens and closes each node's filter (and swells its level) a little.
+        const float cutoff = std::clamp (lowpassHz * lowpassScale[k] * std::exp2 (0.35f * b[k] + mods.scarTone), 200.0f, 0.45f * sr);
+        outLevel[k] = nodeLevel[k] * std::exp (0.17f * b[k]) // about 1.5 dB per unit of breath
+                    * (k == (size_t) memory ? 1.0f + 0.8f * mods.grabMix : 1.0f);
         lowpass[k].setCoefficients (cutoff, lowpassQ[k], sr);
         highpass[k].setCutoff (highpassHz, sr);
         drive[k] = toneDrive * ecologyDrive;
@@ -257,8 +306,6 @@ float Network::readShift() noexcept
     // rate plays faster (or slower) than the write head. Two heads half a window
     // apart, each with a sine window, hide the wrap-around (equal-power crossfade).
     const float window = shiftWindow;
-    const float base = currentDelay[shift];
-    auto& line = lines[shift];
 
     phaseUp -= 1.0f / window; // delay shrinks by 1 sample per sample: read speed 2 (octave up)
     if (phaseUp < 0.0f)
@@ -266,6 +313,20 @@ float Network::readShift() noexcept
     phaseDown += 0.5f / window; // delay grows by 0.5 sample per sample: read speed 0.5 (octave down)
     if (phaseDown >= 1.0f)
         phaseDown -= 1.0f;
+
+    if (fadePos[shift] < 1.0f)
+    {
+        const float a = fadePos[shift] * 0.5f * pi;
+        return std::cos (a) * readShiftAt (fadeFrom[shift]) + std::sin (a) * readShiftAt (currentDelay[shift]);
+    }
+
+    return readShiftAt (currentDelay[shift]);
+}
+
+float Network::readShiftAt (float base) const noexcept
+{
+    const float window = shiftWindow;
+    const auto& line = lines[shift];
 
     auto pair = [&] (float phase)
     {
@@ -296,11 +357,34 @@ float Network::readMemory() noexcept
         }
 
         const float w = 0.5f - 0.5f * std::cos (2.0f * pi * (float) g.age / (float) g.length);
-        sum += w * line.read (g.delay);
+        sum += w * line.read (g.delay + brakeOffset);
         ++g.age;
     }
 
+    const float grabMix = itch.getMods().grabMix;
+    if (grabMix > 0.0f)
+        return (1.0f - grabMix) * 0.5f * sum + grabMix * readGrab();
+
+    grabElapsed = 0;
     return 0.5f * sum;
+}
+
+float Network::readGrab() noexcept
+{
+    // The read position stays fixed in absolute time and loops over the L samples
+    // before the grab began: delay = L + elapsed - (elapsed mod L). Each pass has short
+    // fades at its edges, which gives the stutter its little gaps.
+    const int loop = std::max (64, (int) (itch.getMods().grabLoopSeconds * sr));
+    const int inLoop = grabElapsed % loop;
+    const float delay = (float) (loop + grabElapsed - inLoop);
+    ++grabElapsed;
+
+    if (delay > 3.3f * sr) // past the Memory buffer: let the grab fade, never wrap
+        return 0.0f;
+
+    const float fade = std::min (0.004f * sr, 0.25f * (float) loop);
+    const float w = std::min (1.0f, std::min ((float) inLoop, (float) (loop - inLoop)) / fade);
+    return w * lines[memory].read (delay);
 }
 
 float Network::nextGrainDelay() noexcept
@@ -315,7 +399,7 @@ float Network::nextGrainDelay() noexcept
     return currentDelay[memory] * (0.25f + 0.75f * r);
 }
 
-void Network::process (const float* inL, const float* inR, float* outL, float* outR, int numSamples) noexcept
+void Network::process (const float* inL, const float* inR, float* outL, float* outR, float* dryGain, int numSamples) noexcept
 {
     for (int i = 0; i < numSamples; ++i)
     {
@@ -329,14 +413,49 @@ void Network::process (const float* inL, const float* inR, float* outL, float* o
 
         const float level = std::max (std::abs (l), std::abs (r));
         inputEnvelope += (level > inputEnvelope ? envAttack : envRelease) * (level - inputEnvelope);
+        itch.analyse (mid);
+
+        const auto& mods = itch.getMods();
+        dryGain[i] = mods.dryGain;
 
         // Tape glide: delay times move along a one-pole curve, so a change of Size
         // bends the pitch of what's already in the loop, like a varispeed tape.
+        // In jump mode a big change (a new note value, a lurch) cuts instead: the old
+        // read head fades out while the new one fades in.
         for (size_t k = 0; k < (size_t) numNodes; ++k)
+        {
+            const bool jumpable = k == (size_t) echo || k == (size_t) shift;
+            if (jumpable && jumpMode && fadePos[k] >= 1.0f
+                && std::abs (targetDelay[k] - currentDelay[k]) > 0.03f * currentDelay[k])
+            {
+                fadeFrom[k] = currentDelay[k];
+                currentDelay[k] = targetDelay[k];
+                fadePos[k] = 0.0f;
+            }
+
             currentDelay[k] += glideCoef[k] * (targetDelay[k] - currentDelay[k]);
+            if (fadePos[k] < 1.0f)
+                fadePos[k] = std::min (1.0f, fadePos[k] + fadeStep);
+        }
+
+        // Tape brake: fall behind while braking, catch up after.
+        if (mods.braking)
+            brakeOffset = std::min (brakeLimit - currentDelay[echo], brakeOffset + (1.0f - mods.brakeSpeed));
+        else
+            brakeOffset *= brakeCatchUp;
+        brakeOffset = std::max (0.0f, brakeOffset);
 
         std::array<float, numNodes> y {};
-        y[echo] = lines[echo].read (currentDelay[echo]);
+        if (fadePos[echo] < 1.0f)
+        {
+            const float a = fadePos[echo] * 0.5f * pi;
+            y[echo] = std::cos (a) * lines[echo].read (fadeFrom[echo] + brakeOffset)
+                    + std::sin (a) * lines[echo].read (currentDelay[echo] + brakeOffset);
+        }
+        else
+        {
+            y[echo] = lines[echo].read (currentDelay[echo] + brakeOffset);
+        }
         y[resonator] = lines[resonator].read (currentDelay[resonator]);
         y[shift] = readShift();
         y[memory] = readMemory();
@@ -361,14 +480,15 @@ void Network::process (const float* inL, const float* inR, float* outL, float* o
         for (size_t k = 0; k < (size_t) numNodes; ++k)
         {
             const float mixed = (1.0f - coupling) * y[k] + coupling * h[k];
-            lines[k].push (inputGain * (mid + side * injectSide[k]) + loopGain[k] * mixed);
+            const float send = k == (size_t) echo ? echoSendGain : 1.0f;
+            lines[k].push (send * inputGain * (mid + side * injectSide[k]) + loopGain[k] * mixed);
 
-            wl += nodeLevel[k] * panL[k] * y[k];
-            wr += nodeLevel[k] * panR[k] * y[k];
+            wl += outLevel[k] * panL[k] * y[k];
+            wr += outLevel[k] * panR[k] * y[k];
         }
 
         outL[i] = wetGain * wl;
         outR[i] = wetGain * wr;
     }
 }
-} // namespace viber::dsp
+} // namespace dendrite::dsp

@@ -2,17 +2,18 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-class ViberProcessor;
+class DendriteProcessor;
 
-// Generic Phase 1 window: four macro knobs plus an Output trim, and a Sync switch
-// under Size. Every knob shows its value (Ecology also names its regime), and
-// double-click resets it to default.
-class ViberEditor final : public juce::AudioProcessorEditor,
+// Generic window (the real skin comes in Phase 3): five macro knobs plus an Output
+// trim, Sync and its jump switch under Size, a Scratch button under Itch, and an
+// itch meter in the header. Every knob shows its value (Ecology and Itch also name
+// their regime), and double-click resets it to default.
+class DendriteEditor final : public juce::AudioProcessorEditor,
                           private juce::Timer
 {
 public:
-    explicit ViberEditor (ViberProcessor&);
-    ~ViberEditor() override;
+    explicit DendriteEditor (DendriteProcessor&);
+    ~DendriteEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -28,12 +29,20 @@ private:
     void setUpKnob (Knob&, const juce::String& paramID, const juce::String& name, const juce::String& hint);
     void timerCallback() override;
 
-    ViberProcessor& processor;
+    DendriteProcessor& processor;
     juce::LookAndFeel_V4 lookAndFeel;
     juce::TooltipWindow tooltips { this, 700 };
-    Knob ecology, size, tone, mix, output;
-    juce::ToggleButton syncButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment;
+    Knob ecology, size, tone, itch, mix, output;
+    juce::ToggleButton syncButton, jumpButton;
+    juce::TextButton scratchButton;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment, jumpAttachment;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ViberEditor)
+    // Itch meter state, refreshed by the timer.
+    juce::Rectangle<int> meterArea;
+    float meterLevel = 0.0f;
+    int shownGesture = -1;
+    unsigned lastScratchCount = 0;
+    double showUntil = 0.0;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteEditor)
 };

@@ -14,16 +14,19 @@ inline constexpr auto mix     = "mix";
 inline constexpr auto output  = "output";
 inline constexpr auto bypass  = "bypass";
 inline constexpr auto sync    = "sync";
+inline constexpr auto itch    = "itch";
+inline constexpr auto scratch = "scratch";
+inline constexpr auto jump    = "jump";
 } // namespace ParamIDs
 
-// Phase 1: the network. Signal flow:
-//   input -> 4-node network -> wet auto-gain -> Mix (equal power) -> Output trim
-//         -> safety limiter -> NaN guard -> bypass crossfade -> output
-class ViberProcessor final : public juce::AudioProcessor
+// Signal flow:
+//   input -> 4-node network (with the itch) -> wet auto-gain -> Mix (equal power)
+//         -> Output trim -> safety limiter -> NaN guard -> bypass crossfade -> output
+class DendriteProcessor final : public juce::AudioProcessor
 {
 public:
-    ViberProcessor();
-    ~ViberProcessor() override = default;
+    DendriteProcessor();
+    ~DendriteProcessor() override = default;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -61,6 +64,16 @@ public:
     std::atomic<int> echoNoteForUi { -1 };
     std::atomic<bool> hostHasTempo { false };
 
+    // For the window: how itchy it is (0..1), the scratch playing (-1 for none), and
+    // a counter that ticks once per scratch.
+    std::atomic<float> itchLevelForUi { 0.0f };
+    std::atomic<int> gestureForUi { -1 };
+    std::atomic<unsigned> scratchCountForUi { 0 };
+
+    // Every press flips the Scratch parameter, and any flip scratches, so a button,
+    // automation or a MIDI-mapped toggle all work.
+    void pressScratch();
+
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void resetDsp();
@@ -74,15 +87,27 @@ private:
     std::atomic<float>* mixParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
     std::atomic<float>* syncParam = nullptr;
+    std::atomic<float>* itchParam = nullptr;
+    std::atomic<float>* scratchParam = nullptr;
+    std::atomic<float>* jumpParam = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
 
-    viber::dsp::Network network;
-    viber::dsp::AutoGain autoGain;
-    viber::dsp::SafetyLimiter limiter;
+    dendrite::dsp::Network network;
+    dendrite::dsp::AutoGain autoGain;
+    dendrite::dsp::SafetyLimiter limiter;
 
     juce::SmoothedValue<float> mixSm, trimSm, bypassSm;
 
-    std::array<float, subBlock> dryL {}, dryR {}, wetL {}, wetR {};
+    std::array<float, subBlock> dryL {}, dryR {}, wetL {}, wetR {}, dryDuck {};
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ViberProcessor)
+    bool lastScratch = false;
+    std::array<float, 5> lastKnobs {};
+
+    // Scars live in the network but are saved with the set: the audio thread mirrors
+    // them here, and a loaded state hands new ones over through `scarsPending`.
+    std::array<std::atomic<float>, 6> scarsSaved {};
+    std::array<std::atomic<float>, 6> scarsLoaded {};
+    std::atomic<bool> scarsPending { false };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteProcessor)
 };

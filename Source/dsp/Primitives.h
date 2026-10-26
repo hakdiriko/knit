@@ -8,7 +8,7 @@
 
 // Small real-time-safe DSP building blocks. Everything that allocates does so in
 // prepare(), never on the audio thread.
-namespace viber::dsp
+namespace dendrite::dsp
 {
 constexpr float pi = 3.14159265358979f;
 
@@ -234,6 +234,97 @@ private:
     float coefficient = 0.1f, value = 0.0f, target = 0.0f;
 };
 
+// 1/f ("pink") control signal, Voss-McCartney style: eight held random sources, the
+// k-th redrawn every 2^k steps, summed. Each octave of modulation rate carries about
+// the same energy, so there are slow swells with smaller swells inside them, the
+// fluctuation spectrum Voss and Clarke measured in music and speech. A random walk
+// (brown) only wanders; white noise only jitters.
+class PinkWalk
+{
+public:
+    void prepare (float updateRateHz, float fastestHz, uint32_t seed)
+    {
+        stepTicks = std::max (1, (int) (updateRateHz / fastestHz));
+        coefficient = 1.0f - std::exp (-2.0f * pi * fastestHz / updateRateHz);
+        seedValue = seed;
+        reset();
+    }
+
+    void reset() noexcept
+    {
+        rng.seed (seedValue);
+        for (auto& v : sources)
+            v = rng.nextBipolar();
+        ticks = 0;
+        counter = 0;
+        value = sum();
+    }
+
+    // Call once per control tick; returns a value in roughly [-1, 1].
+    float tick() noexcept
+    {
+        if (++ticks >= stepTicks)
+        {
+            ticks = 0;
+            ++counter;
+            // Source k changes when bit k is the lowest set bit of the counter: source 0
+            // every step, source 1 every 2nd, source 2 every 4th, and so on.
+            int k = 0;
+            while (k < (int) sources.size() - 1 && ((counter >> k) & 1u) == 0)
+                ++k;
+            sources[(size_t) k] = rng.nextBipolar();
+        }
+
+        value += coefficient * (sum() - value); // removes the steps, keeps the shape
+        return value;
+    }
+
+private:
+    float sum() const noexcept
+    {
+        float s = 0.0f;
+        for (auto v : sources)
+            s += v;
+        return std::clamp (s * 0.42f, -1.5f, 1.5f);
+    }
+
+    Rng rng;
+    std::array<float, 8> sources {};
+    uint32_t seedValue = 1, counter = 0;
+    int stepTicks = 1, ticks = 0;
+    float coefficient = 0.1f, value = 0.0f;
+};
+
+// TPT state-variable bandpass, used to analyse the input (not in the signal path).
+class SvfBandpass
+{
+public:
+    void setCoefficients (float centreHz, float q, float sampleRate) noexcept
+    {
+        const float g = std::tan (pi * std::min (centreHz, 0.45f * sampleRate) / sampleRate);
+        k = 1.0f / q;
+        a1 = 1.0f / (1.0f + g * (g + k));
+        a2 = g * a1;
+        a3 = g * a2;
+    }
+
+    float process (float x) noexcept
+    {
+        const float v3 = x - ic2;
+        const float v1 = a1 * ic1 + a2 * v3;
+        const float v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1 = 2.0f * v1 - ic1;
+        ic2 = 2.0f * v2 - ic2;
+        return k * v1; // unity gain at the centre
+    }
+
+    void reset() noexcept { ic1 = ic2 = 0.0f; }
+
+private:
+    float k = 1.0f, a1 = 1.0f, a2 = 0.0f, a3 = 0.0f;
+    float ic1 = 0.0f, ic2 = 0.0f;
+};
+
 //==============================================================================
 // Macro paths: one knob drives many hidden parameters, each along its own curve.
 // Smoothstep between breakpoints, so there are no corners and no audible kinks.
@@ -264,4 +355,4 @@ inline float expMap (float lo, float hi, float x) noexcept
 {
     return lo * std::pow (hi / lo, x);
 }
-} // namespace viber::dsp
+} // namespace dendrite::dsp
