@@ -16,7 +16,10 @@ inline constexpr auto bypass  = "bypass";
 inline constexpr auto sync    = "sync";
 inline constexpr auto itch    = "itch";
 inline constexpr auto scratch = "scratch";
-inline constexpr auto jump    = "jump";
+inline constexpr auto jump    = "jump";    // shown as "Steady" since 0.3.0 (it grew from Sync jump)
+inline constexpr auto autoMoves = "auto";
+inline constexpr auto bars    = "bars";
+inline constexpr auto build   = "build";
 } // namespace ParamIDs
 
 // Signal flow:
@@ -64,10 +67,10 @@ public:
     std::atomic<int> echoNoteForUi { -1 };
     std::atomic<bool> hostHasTempo { false };
 
-    // For the window: how itchy it is (0..1), the scratch playing (-1 for none), and
-    // a counter that ticks once per scratch.
-    std::atomic<float> itchLevelForUi { 0.0f };
-    std::atomic<int> gestureForUi { -1 };
+    // For the window: how many bars of repetition it has counted, the move playing
+    // (-1 for none), and a counter that ticks once per move.
+    std::atomic<float> barsHeardForUi { 0.0f };
+    std::atomic<int> moveForUi { -1 };
     std::atomic<unsigned> scratchCountForUi { 0 };
 
     // Every press flips the Scratch parameter, and any flip scratches, so a button,
@@ -90,6 +93,9 @@ private:
     std::atomic<float>* itchParam = nullptr;
     std::atomic<float>* scratchParam = nullptr;
     std::atomic<float>* jumpParam = nullptr;
+    std::atomic<float>* autoParam = nullptr;
+    std::atomic<float>* barsParam = nullptr;
+    std::atomic<float>* buildParam = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
 
     dendrite::dsp::Network network;
@@ -98,7 +104,7 @@ private:
 
     juce::SmoothedValue<float> mixSm, trimSm, bypassSm;
 
-    std::array<float, subBlock> dryL {}, dryR {}, wetL {}, wetR {}, dryDuck {};
+    std::array<float, subBlock> dryL {}, dryR {}, wetL {}, wetR {};
 
     bool lastScratch = false;
     std::array<float, 5> lastKnobs {};

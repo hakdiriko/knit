@@ -34,9 +34,10 @@ JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch")  # params not expected to change character
+SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch", "auto", "after", "build")  # params not expected to change character
 # "sync" (and "sync_jump") need a host tempo, and pedalboard has no play head, so they are no-ops here.
 # "scratch" is a trigger: only a flip during playback scratches, and every render here starts from reset.
+# "auto_moves", "after" and "build_up" act after 4 to 64 bars of repetition, far longer than a render here.
 
 
 # ---------------------------------------------------------------- test signals
@@ -207,8 +208,9 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
             # Dead zone = a stretch of travel whose two ends still sound alike.
             # Judged end-to-end, not step-to-step: a smooth knob makes small steps
             # everywhere, but its total change across a stretch is still large.
+            # A switch has no travel, only its two states, so it is judged by reach alone.
             i = 0
-            while i < len(res) - 1:
+            while getattr(p, "num_steps", 0) > 2 and i < len(res) - 1:
                 j = i
                 while j + 1 < len(res) and distance(res[i], res[j + 1]) < DEAD_DIST_DB:
                     j += 1

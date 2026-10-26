@@ -105,8 +105,7 @@ void Network::prepare (double sampleRate)
 
     itch.prepare (sr, controlRate);
     fadeStep = 1.0f / (0.025f * sr);
-    brakeCatchUp = std::exp (-1.0f / (0.35f * sr));
-    brakeLimit = 1.1f * sr; // stays inside the Echo buffer at any Size
+    wobbleCoef = 1.0f - std::exp (-1.0f / (0.5f * controlRate));
 
     ecologySm.reset (controlRate, 0.06);
     sizeSm.reset (controlRate, 0.06);
@@ -139,8 +138,7 @@ void Network::reset()
     inputEnvelope = 0.0f;
     itch.reset();
     fadePos.fill (1.0f);
-    brakeOffset = 0.0f;
-    grabElapsed = 0;
+    wobble = steady ? 0.0f : 1.0f;
     presence = 1.0f;
     controlCounter = 0;
     snapOnNextUpdate = true;
@@ -162,9 +160,12 @@ void Network::setMacros (float ecology, float size, float tone) noexcept
     toneSm.setTargetValue (tone);
 }
 
-void Network::setItch (float amount, bool knobsMoving) noexcept
+void Network::setItch (float amount, bool autoMoves, int patienceBars, bool build, bool knobsMoving) noexcept
 {
     itch.setAmount (amount);
+    itch.setAuto (autoMoves);
+    itch.setPatience (patienceBars);
+    itch.setBuild (build);
     itch.setKnobsMoving (knobsMoving);
 }
 
@@ -181,12 +182,20 @@ const char* Network::noteName (int index) noexcept
 
 void Network::updateControl() noexcept
 {
-    const float e = ecologySm.getNextValue();
+    const float knobEcology = ecologySm.getNextValue();
     const float s = sizeSm.getNextValue();
-    const float t = toneSm.getNextValue();
+    const float knobTone = toneSm.getNextValue();
 
-    itch.tick (e);
+    itch.tick (knobEcology);
     const auto& mods = itch.getMods();
+
+    // A move leans Ecology and Tone. It never tips the network past the edge of the
+    // ringing regime unless the knob already put it there.
+    const float e = std::clamp (knobEcology + mods.ecologyAdd, 0.0f, std::max (knobEcology, 0.72f));
+    const float t = std::clamp (knobTone + 0.3f * mods.toneAdd, 0.0f, 1.0f);
+
+    // Phase guard: on drums the delay times hold (nearly) still; Steady holds them still.
+    wobble += wobbleCoef * ((steady ? 0.0f : 1.0f - 0.8f * itch.getTransient()) - wobble);
 
     // Starvation: input level -> presence (0 below -75 dBFS, 1 above -55 dBFS).
     const float envDb = 20.0f * std::log10 (inputEnvelope + 1.0e-9f);
@@ -194,7 +203,7 @@ void Network::updateControl() noexcept
     presence += presenceCoef * (present - presence);
 
     // ---- Ecology
-    coupling = std::min (1.0f, evalPath (couplingPath, e) + mods.couplingAdd);
+    coupling = evalPath (couplingPath, e);
     diffusion = evalPath (diffusionPath, e);
     const float ecologyDrive = evalPath (ecologyDrivePath, e);
 
@@ -202,24 +211,34 @@ void Network::updateControl() noexcept
     {
         const float g = evalPath (loopGainPath[k], e);
         const float fed = g > starveGain ? starveGain + (g - starveGain) * presence : g;
-        // Scratches push or cut the loops; the saturators keep anything above 1 bounded.
-        const float push = mods.loopAdd + (k == (size_t) echo ? mods.echoLoopAdd : 0.0f);
-        loopGain[k] = std::min (1.25f, (fed + push) * mods.loopScale);
+        loopGain[k] = std::min (1.25f, fed);
     }
-
-    echoSendGain = 1.0f + mods.echoSend;
 
     // ---- Size: small and close -> huge and far.
     float echoSeconds = expMap (0.07f, 1.0f, s);
-    // Retune glides the Resonator to a new interval; a detune scar shifts it slightly.
-    const float resonatorHz = std::clamp (expMap (520.0f, 65.0f, s) * mods.retuneRatio
-                                              * std::exp2 (mods.scarDetune / 12.0f), 40.0f, 2000.0f);
+    // A detune scar shifts the Resonator slightly.
+    const float resonatorHz = std::clamp (expMap (520.0f, 65.0f, s) * std::exp2 (mods.scarDetune / 12.0f), 40.0f, 2000.0f);
     float shiftSeconds = expMap (0.04f, 0.45f, s);
     shiftWindow = expMap (0.05f, 0.12f, s) * sr;
     grainLength = (int) (expMap (0.05f, 0.26f, s) * sr);
     float memorySeconds = expMap (0.2f, 2.6f, s);
     const float spread = 0.25f + 0.75f * s;
     const float damping = expMap (1.0f, 0.55f, s);
+
+    // A step multiplies the time-based nodes (x2, x0.5, x1.5, x0.75), halved until it
+    // fits the buffer. Under Sync the result snaps to a note value like any Size.
+    if (std::abs (mods.sizeRatio - 1.0f) > 1.0e-6f)
+    {
+        const auto fit = [] (float seconds, float ratio, float hi)
+        {
+            while (seconds * ratio > hi && ratio > 0.25f)
+                ratio *= 0.5f;
+            return seconds * ratio;
+        };
+        echoSeconds = fit (echoSeconds, mods.sizeRatio, echoSyncMaxSeconds);
+        shiftSeconds = fit (shiftSeconds, mods.sizeRatio, shiftSyncMaxSeconds);
+        memorySeconds = fit (memorySeconds, mods.sizeRatio, memorySyncMaxSeconds);
+    }
 
     // ---- Sync: Size still chooses small or large; Sync rounds each time-based node to
     // the nearest note value. Delay times keep gliding, so stepping from one note
@@ -246,26 +265,15 @@ void Network::updateControl() noexcept
     if (echoNote < 0)
         echoSeconds *= 1.0f + mods.scarEcho;
 
-    // Lurch: Echo and Shift jump by a ratio (x2, x0.5, x1.5, x0.75), halved until it fits.
-    if (std::abs (mods.lurchRatio - 1.0f) > 1.0e-6f)
-    {
-        const auto fit = [] (float seconds, float ratio, float hi)
-        {
-            while (seconds * ratio > hi && ratio > 0.25f)
-                ratio *= 0.5f;
-            return seconds * ratio;
-        };
-        echoSeconds = fit (echoSeconds, mods.lurchRatio, echoSyncMaxSeconds);
-        shiftSeconds = fit (shiftSeconds, mods.lurchRatio, shiftSyncMaxSeconds);
-    }
+    jumpMode = steady;
 
-    jumpMode = (syncJump && echoNote >= 0) || itch.getActiveGesture() == Itch::lurch;
-
-    // The fixed drift keeps the loops from ringing metallic; the breathing rides on top.
+    // The fixed drift keeps the loops from ringing metallic; the breathing rides on
+    // top. Both scale with the phase guard.
     const auto& b = mods.breath;
-    targetDelay[echo] = echoSeconds * sr * (1.0f + driftDepth[echo] * drift[echo].tick() + 0.0035f * b[echo]);
-    targetDelay[resonator] = sr / resonatorHz * (1.0f + driftDepth[resonator] * drift[resonator].tick() + 0.0015f * b[resonator]);
-    targetDelay[shift] = shiftSeconds * sr * (1.0f + driftDepth[shift] * drift[shift].tick() + 0.0035f * b[shift]);
+    const float w = wobble;
+    targetDelay[echo] = echoSeconds * sr * (1.0f + w * (driftDepth[echo] * drift[echo].tick() + 0.0035f * b[echo]));
+    targetDelay[resonator] = sr / resonatorHz * (1.0f + w * (driftDepth[resonator] * drift[resonator].tick() + 0.0015f * b[resonator]));
+    targetDelay[shift] = shiftSeconds * sr * (1.0f + w * (driftDepth[shift] * drift[shift].tick() + 0.0035f * b[shift]));
     targetDelay[memory] = memorySeconds * sr;
     drift[memory].tick();
 
@@ -280,9 +288,9 @@ void Network::updateControl() noexcept
     for (size_t k = 0; k < (size_t) numNodes; ++k)
     {
         // Breathing opens and closes each node's filter (and swells its level) a little.
-        const float cutoff = std::clamp (lowpassHz * lowpassScale[k] * std::exp2 (0.35f * b[k] + mods.scarTone), 200.0f, 0.45f * sr);
+        const float cutoff = std::clamp (lowpassHz * lowpassScale[k] * std::exp2 (0.35f * b[k] + mods.scarTone + mods.toneAdd), 200.0f, 0.45f * sr);
         outLevel[k] = nodeLevel[k] * std::exp (0.17f * b[k]) // about 1.5 dB per unit of breath
-                    * (k == (size_t) memory ? 1.0f + 0.8f * mods.grabMix : 1.0f);
+                    * mods.nodeGain[k];                    // a lean brings one node forward
         lowpass[k].setCoefficients (cutoff, lowpassQ[k], sr);
         highpass[k].setCutoff (highpassHz, sr);
         drive[k] = toneDrive * ecologyDrive;
@@ -357,34 +365,11 @@ float Network::readMemory() noexcept
         }
 
         const float w = 0.5f - 0.5f * std::cos (2.0f * pi * (float) g.age / (float) g.length);
-        sum += w * line.read (g.delay + brakeOffset);
+        sum += w * line.read (g.delay);
         ++g.age;
     }
 
-    const float grabMix = itch.getMods().grabMix;
-    if (grabMix > 0.0f)
-        return (1.0f - grabMix) * 0.5f * sum + grabMix * readGrab();
-
-    grabElapsed = 0;
     return 0.5f * sum;
-}
-
-float Network::readGrab() noexcept
-{
-    // The read position stays fixed in absolute time and loops over the L samples
-    // before the grab began: delay = L + elapsed - (elapsed mod L). Each pass has short
-    // fades at its edges, which gives the stutter its little gaps.
-    const int loop = std::max (64, (int) (itch.getMods().grabLoopSeconds * sr));
-    const int inLoop = grabElapsed % loop;
-    const float delay = (float) (loop + grabElapsed - inLoop);
-    ++grabElapsed;
-
-    if (delay > 3.3f * sr) // past the Memory buffer: let the grab fade, never wrap
-        return 0.0f;
-
-    const float fade = std::min (0.004f * sr, 0.25f * (float) loop);
-    const float w = std::min (1.0f, std::min ((float) inLoop, (float) (loop - inLoop)) / fade);
-    return w * lines[memory].read (delay);
 }
 
 float Network::nextGrainDelay() noexcept
@@ -399,7 +384,7 @@ float Network::nextGrainDelay() noexcept
     return currentDelay[memory] * (0.25f + 0.75f * r);
 }
 
-void Network::process (const float* inL, const float* inR, float* outL, float* outR, float* dryGain, int numSamples) noexcept
+void Network::process (const float* inL, const float* inR, float* outL, float* outR, int numSamples) noexcept
 {
     for (int i = 0; i < numSamples; ++i)
     {
@@ -415,13 +400,10 @@ void Network::process (const float* inL, const float* inR, float* outL, float* o
         inputEnvelope += (level > inputEnvelope ? envAttack : envRelease) * (level - inputEnvelope);
         itch.analyse (mid);
 
-        const auto& mods = itch.getMods();
-        dryGain[i] = mods.dryGain;
-
         // Tape glide: delay times move along a one-pole curve, so a change of Size
         // bends the pitch of what's already in the loop, like a varispeed tape.
-        // In jump mode a big change (a new note value, a lurch) cuts instead: the old
-        // read head fades out while the new one fades in.
+        // Steady cuts a big change (a new note value, a step, a Size move) instead: the
+        // old read head fades out while the new one fades in.
         for (size_t k = 0; k < (size_t) numNodes; ++k)
         {
             const bool jumpable = k == (size_t) echo || k == (size_t) shift;
@@ -438,23 +420,16 @@ void Network::process (const float* inL, const float* inR, float* outL, float* o
                 fadePos[k] = std::min (1.0f, fadePos[k] + fadeStep);
         }
 
-        // Tape brake: fall behind while braking, catch up after.
-        if (mods.braking)
-            brakeOffset = std::min (brakeLimit - currentDelay[echo], brakeOffset + (1.0f - mods.brakeSpeed));
-        else
-            brakeOffset *= brakeCatchUp;
-        brakeOffset = std::max (0.0f, brakeOffset);
-
         std::array<float, numNodes> y {};
         if (fadePos[echo] < 1.0f)
         {
             const float a = fadePos[echo] * 0.5f * pi;
-            y[echo] = std::cos (a) * lines[echo].read (fadeFrom[echo] + brakeOffset)
-                    + std::sin (a) * lines[echo].read (currentDelay[echo] + brakeOffset);
+            y[echo] = std::cos (a) * lines[echo].read (fadeFrom[echo])
+                    + std::sin (a) * lines[echo].read (currentDelay[echo]);
         }
         else
         {
-            y[echo] = lines[echo].read (currentDelay[echo] + brakeOffset);
+            y[echo] = lines[echo].read (currentDelay[echo]);
         }
         y[resonator] = lines[resonator].read (currentDelay[resonator]);
         y[shift] = readShift();
@@ -480,8 +455,7 @@ void Network::process (const float* inL, const float* inR, float* outL, float* o
         for (size_t k = 0; k < (size_t) numNodes; ++k)
         {
             const float mixed = (1.0f - coupling) * y[k] + coupling * h[k];
-            const float send = k == (size_t) echo ? echoSendGain : 1.0f;
-            lines[k].push (send * inputGain * (mid + side * injectSide[k]) + loopGain[k] * mixed);
+            lines[k].push (inputGain * (mid + side * injectSide[k]) + loopGain[k] * mixed);
 
             wl += outLevel[k] * panL[k] * y[k];
             wr += outLevel[k] * panR[k] * y[k];
