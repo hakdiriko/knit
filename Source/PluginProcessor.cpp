@@ -13,7 +13,7 @@ juce::String ecologyText (float v, int)
 
 juce::String itchText (float v, int)
 {
-    const char* regime = v < 0.02f ? "still" : v < 0.35f ? "breathing" : v < 0.6f ? "restless" : v < 0.85f ? "itchy" : "compulsive";
+    const char* regime = v < 0.02f ? "still" : v < 0.35f ? "breathing" : v < 0.7f ? "restless" : "feverish";
     return percent (v, 0) + juce::String::fromUTF8 (" \xc2\xb7 ") + regime;
 }
 
@@ -23,6 +23,11 @@ juce::String decibels (float v, int)
 }
 
 float fromPercent (const juce::String& text) { return text.retainCharacters ("0123456789.-").getFloatValue() / 100.0f; }
+
+// The choices of the Bars parameter: how many bars of repetition before a move.
+constexpr std::array<int, 5> patienceBars { 4, 8, 16, 32, 64 };
+
+int patienceFrom (float index) { return patienceBars[(size_t) juce::jlimit (0, 4, juce::roundToInt (index))]; }
 } // namespace
 
 DendriteProcessor::DendriteProcessor()
@@ -41,6 +46,9 @@ DendriteProcessor::DendriteProcessor()
     itchParam = parameters.getRawParameterValue (ParamIDs::itch);
     scratchParam = parameters.getRawParameterValue (ParamIDs::scratch);
     jumpParam = parameters.getRawParameterValue (ParamIDs::jump);
+    autoParam = parameters.getRawParameterValue (ParamIDs::autoMoves);
+    barsParam = parameters.getRawParameterValue (ParamIDs::bars);
+    buildParam = parameters.getRawParameterValue (ParamIDs::build);
     bypassParam = dynamic_cast<juce::AudioParameterBool*> (parameters.getParameter (ParamIDs::bypass));
     jassert (bypassParam != nullptr);
 }
@@ -75,7 +83,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout DendriteProcessor::createPar
                                          Attributes().withStringFromValueFunction (itchText)
                                                      .withValueFromStringFunction (fromPercent)),
                 std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::scratch, 3 }, "Scratch", false),
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::jump, 3 }, "Sync jump", false));
+                // Was "Sync jump" in 0.2.0; since 0.3.0 it holds every delay time still.
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::jump, 3 }, "Steady", false),
+                // Added in 0.3.0, version hint 4. Auto is off by default: Dendrite never
+                // breaks a loop on its own unless asked to.
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::autoMoves, 4 }, "Auto moves", false),
+                std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { ParamIDs::bars, 4 }, "After",
+                                                              juce::StringArray { "4 bars", "8 bars", "16 bars", "32 bars", "64 bars" }, 2),
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::build, 4 }, "Build-up", true));
     return layout;
 }
 
@@ -114,9 +129,9 @@ double DendriteProcessor::hostBpm() const
 void DendriteProcessor::resetDsp()
 {
     network.setSync (syncParam->load() >= 0.5f, hostBpm());
-    network.setSyncJump (jumpParam->load() >= 0.5f);
+    network.setSteady (jumpParam->load() >= 0.5f);
     network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
-    network.setItch (itchParam->load(), false);
+    network.setItch (itchParam->load(), autoParam->load() >= 0.5f, patienceFrom (barsParam->load()), buildParam->load() >= 0.5f, false);
     network.reset();
     lastScratch = scratchParam->load() >= 0.5f;
     lastKnobs = { ecologyParam->load(), sizeParam->load(), toneParam->load(), mixParam->load(), itchParam->load() };
@@ -185,9 +200,9 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     }
 
     network.setSync (syncParam->load() >= 0.5f, bpm);
-    network.setSyncJump (jumpParam->load() >= 0.5f);
+    network.setSteady (jumpParam->load() >= 0.5f);
     network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
-    network.setItch (itchParam->load(), moving);
+    network.setItch (itchParam->load(), autoParam->load() >= 0.5f, patienceFrom (barsParam->load()), buildParam->load() >= 0.5f, moving);
     network.setTransport (transport);
     mixSm.setTargetValue (mixParam->load());
     trimSm.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
@@ -206,8 +221,7 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             dryR[(size_t) i] = right != nullptr ? right[start + i] : dryL[(size_t) i];
         }
 
-        network.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), dryDuck.data(), n);
-        autoGain.setHold (network.wantsGainHold());
+        network.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n);
         autoGain.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n);
 
         for (int i = 0; i < n; ++i)
@@ -217,10 +231,7 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
             // Equal-power crossfade: perceived loudness stays level across the Mix travel.
             const float mix = mixSm.getNextValue();
             const float m = mix * 0.5f * dendrite::dsp::pi;
-            // The dub drop ducks the dry. Near Mix 0% there are no echoes to hear in the
-            // hole, so it fades out of the way.
-            const float duck = 1.0f - (1.0f - dryDuck[s]) * std::min (1.0f, 2.5f * mix);
-            const float dryGain = std::cos (m) * duck, wetGain = std::sin (m);
+            const float dryGain = std::cos (m), wetGain = std::sin (m);
             const float trim = trimSm.getNextValue();
 
             float l = (dryGain * dryL[s] + wetGain * wetL[s]) * trim;
@@ -247,8 +258,8 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     hostHasTempo.store (bpm > 0.0, std::memory_order_relaxed);
 
     const auto& itch = network.getItch();
-    itchLevelForUi.store (itch.getLevel(), std::memory_order_relaxed);
-    gestureForUi.store (itch.getActiveGesture(), std::memory_order_relaxed);
+    barsHeardForUi.store (itch.getBarsHeard(), std::memory_order_relaxed);
+    moveForUi.store (itch.getActiveMove(), std::memory_order_relaxed);
     scratchCountForUi.store (itch.getScratchCount(), std::memory_order_relaxed);
     const auto scars = itch.getScars();
     for (size_t i = 0; i < scars.size(); ++i)

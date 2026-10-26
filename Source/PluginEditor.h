@@ -5,8 +5,8 @@
 class DendriteProcessor;
 
 // Generic window (the real skin comes in Phase 3): five macro knobs plus an Output
-// trim, Sync and its jump switch under Size, a Scratch button under Itch, and an
-// itch meter in the header. Every knob shows its value (Ecology and Itch also name
+// trim, Sync and Steady under Size, the itch's switches under Itch (Auto, After N
+// bars, Build-up, Scratch), and an itch meter in the header that counts bars. Every knob shows its value (Ecology and Itch also name
 // their regime), and double-click resets it to default.
 class DendriteEditor final : public juce::AudioProcessorEditor,
                           private juce::Timer
@@ -33,14 +33,17 @@ private:
     juce::LookAndFeel_V4 lookAndFeel;
     juce::TooltipWindow tooltips { this, 700 };
     Knob ecology, size, tone, itch, mix, output;
-    juce::ToggleButton syncButton, jumpButton;
+    juce::ToggleButton syncButton, steadyButton, autoButton, buildButton;
+    juce::ComboBox barsBox;
     juce::TextButton scratchButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment, jumpAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> syncAttachment, steadyAttachment, autoAttachment, buildAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> barsAttachment;
 
     // Itch meter state, refreshed by the timer.
     juce::Rectangle<int> meterArea;
-    float meterLevel = 0.0f;
-    int shownGesture = -1;
+    float meterLevel = 0.0f, barsHeard = 0.0f;
+    int patience = 16, shownMove = -1;
+    bool autoOn = false;
     unsigned lastScratchCount = 0;
     double showUntil = 0.0;
 

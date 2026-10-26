@@ -6,8 +6,8 @@ namespace
 {
     constexpr float golden = 1.6180339f;
 
-    // Breathing depth from the Itch knob: still -> breathing -> restless (and beyond).
-    constexpr std::array<Breakpoint, 4> breathPath {{ { 0.0f, 0.0f }, { 0.35f, 1.0f }, { 0.6f, 1.7f }, { 1.0f, 2.4f } }};
+    // Breathing depth from the Itch knob: still -> breathing -> restless -> feverish.
+    constexpr std::array<Breakpoint, 4> breathPath {{ { 0.0f, 0.0f }, { 0.35f, 1.0f }, { 0.7f, 1.8f }, { 1.0f, 2.4f } }};
 
     // Kuramoto coupling (rad/s) from Ecology. The natural rates below sit about
     // 0.3 rad/s apart, so the wobbles lock somewhere past 60% Ecology: the "ringing"
@@ -15,42 +15,29 @@ namespace
     constexpr std::array<Breakpoint, 4> kuramotoPath {{ { 0.0f, 0.0f }, { 0.4f, 0.08f }, { 0.65f, 0.5f }, { 1.0f, 1.3f } }};
     constexpr std::array<float, 4> naturalHz { 0.09f, 0.13f, 0.17f, 0.11f };
 
-    // Gesture weights for hits (drums) and for sustain (pads), blended by how
-    // transient the input is. Order: throw, runaway, dub drop, lurch, brake, grab, retune.
-    constexpr std::array<float, 7> hitWeights     { 3.0f, 0.7f, 2.5f, 2.0f, 1.0f, 2.5f, 0.5f };
-    constexpr std::array<float, 7> sustainWeights { 1.0f, 3.0f, 0.7f, 1.5f, 2.5f, 0.7f, 2.5f };
+    // Move weights for hits (drums) and for sustain (pads), blended by how transient
+    // the input is. Order: open, close, step, lean, tilt.
+    constexpr std::array<float, 5> hitWeights     { 0.7f, 1.6f, 2.0f, 1.5f, 0.8f };
+    constexpr std::array<float, 5> sustainWeights { 2.0f, 0.8f, 0.8f, 1.5f, 1.6f };
 
-    // Scar size per scratch and the most a scar can grow to.
+    // Scar size per move and the most a scar can grow to.
     constexpr std::array<float, 3> scarUnit  { 0.8f, 0.025f, 0.12f };
     constexpr std::array<float, 3> scarLimit { 3.0f, 0.06f, 0.4f };
+
+    // Moves land on a 4-bar line.
+    constexpr double phraseBars = 4.0;
 
     float smooth01 (float x) noexcept
     {
         x = std::clamp (x, 0.0f, 1.0f);
         return x * x * (3.0f - 2.0f * x);
     }
-
-    // Attack, hold, release envelope (seconds), smoothstepped edges.
-    float envelope (float t, float attack, float hold, float release) noexcept
-    {
-        if (t < 0.0f)
-            return 0.0f;
-        if (t < attack)
-            return smooth01 (t / attack);
-        t -= attack;
-        if (t < hold)
-            return 1.0f;
-        t -= hold;
-        if (t < release)
-            return 1.0f - smooth01 (t / release);
-        return 0.0f;
-    }
 } // namespace
 
-const char* Itch::gestureName (int gesture) noexcept
+const char* Itch::moveName (int move) noexcept
 {
-    static constexpr std::array<const char*, 7> names { "throw", "runaway", "dub drop", "lurch", "brake", "grab", "retune" };
-    return gesture >= 0 && gesture < numGestures ? names[(size_t) gesture] : "";
+    static constexpr std::array<const char*, 5> names { "open", "close", "step", "lean", "tilt" };
+    return move >= 0 && move < numMoves ? names[(size_t) move] : "";
 }
 
 void Itch::prepare (float sampleRate, float rate)
@@ -70,6 +57,7 @@ void Itch::prepare (float sampleRate, float rate)
 
     healCoef = std::exp (-1.0f / (180.0f * controlRate));
     fastHealCoef = std::exp (-1.0f / (3.0f * controlRate));
+    appliedCoef = 1.0f - std::exp (-1.0f / (0.08f * controlRate));
 
     reset();
 }
@@ -83,6 +71,7 @@ void Itch::reset()
     for (int k = 0; k < 4; ++k)
         phase[(size_t) k] = 1.7f * (float) k;
 
+    applied = {};
     mods = {};
     tick (0.0f); // so the first block already carries scars and breathing
 }
@@ -97,19 +86,22 @@ void Itch::restartDynamics (uint32_t seed) noexcept
     historyPos = 0;
     framesSeen = 0;
     soundFrames = 0;
-    specSim = barSim = sameness = 0.0f;
+    specSim = barSim = fastSim = sameness = 0.0f;
     prevBroadband = -100.0f;
     onsetRate = transient = 0.0f;
-    idleSeconds = 0.0f;
 
     level = 0.0f;
     armedSeconds = 0.0f;
-    relief = holdSeconds = 0.0f;
-    active = lastGesture = none;
+    relief = 0.0f;
     manualPending = false;
 
+    // A move in progress lets go; `applied` eases back, so nothing jumps.
+    stage = idle;
+    current = pending = lastMove = none;
+    moveAmount = 0.0f;
+
     rng.seed (seed);
-    threshold = 1.0f + 0.12f * rng.nextBipolar();
+    threshold = 1.0f + 0.08f * rng.nextBipolar();
 }
 
 void Itch::setTransport (const Transport& t) noexcept
@@ -117,16 +109,24 @@ void Itch::setTransport (const Transport& t) noexcept
     const bool tempo = t.playing && t.bpm > 0.0;
 
     // Play pressed: start listening from scratch, with a seed taken from the bar the
-    // transport starts on. Playing from the same bar gives the same scratches.
+    // transport starts on. Playing from the same bar gives the same moves.
     if (tempo && ! wasPlaying)
     {
         const auto barIndex = (uint32_t) (long long) std::floor (t.ppq / std::max (1.0, t.barQuarters));
         restartDynamics (0x6d2b79f5u ^ (barIndex * 2654435761u));
-        lastPhrase = (long long) std::floor (t.ppq / (4.0 * std::max (1.0, t.barQuarters)));
+        lastPhrase = (long long) std::floor (t.ppq / (phraseBars * std::max (1.0, t.barQuarters)));
     }
 
     wasPlaying = tempo;
     transport = t;
+}
+
+float Itch::barSeconds() const noexcept
+{
+    // Without a tempo, a bar counts as 2 s (4/4 at 120 BPM).
+    if (! hasTempo())
+        return 2.0f;
+    return std::clamp ((float) (transport.barQuarters * 60.0 / transport.bpm), 0.25f, 16.0f);
 }
 
 void Itch::analyse (float mono) noexcept
@@ -145,6 +145,35 @@ void Itch::analyse (float mono) noexcept
     }
 }
 
+float Itch::repeatScore (const std::array<float, numBands>& db) const noexcept
+{
+    // The same moment 1, 2, 4 and 8 bars ago, read between frames (bars rarely last a
+    // whole number of 50 ms frames). The best match wins: a loop repeats at its own
+    // length, and also at every multiple of it.
+    const float barFrames = barSeconds() / hopSeconds;
+    float best = -1.0f;
+
+    for (const float bars : { 1.0f, 2.0f, 4.0f, 8.0f })
+    {
+        const float lag = bars * barFrames;
+        if (lag < 2.0f || lag > (float) (historyFrames - 2) || (float) framesSeen < lag + 1.0f)
+            continue;
+
+        const int whole = (int) lag;
+        const float frac = lag - (float) whole;
+        const auto& a = history[(size_t) ((historyPos - whole + historyFrames) % historyFrames)];
+        const auto& b = history[(size_t) ((historyPos - whole - 1 + historyFrames) % historyFrames)];
+
+        float d = 0.0f;
+        for (int k = 0; k < numBands; ++k)
+            d += std::abs (db[(size_t) k] - ((1.0f - frac) * a[(size_t) k] + frac * b[(size_t) k]));
+
+        best = std::max (best, 1.0f - std::clamp (d / (float) numBands / 9.0f, 0.0f, 1.0f));
+    }
+
+    return best;
+}
+
 void Itch::analyseFrame() noexcept
 {
     std::array<float, numBands> db {};
@@ -159,11 +188,11 @@ void Itch::analyseFrame() noexcept
 
     const float broadband = 10.0f * std::log10 (total + 1.0e-12f);
     const bool silent = broadband < -60.0f;
-    const float presence = std::clamp ((broadband + 60.0f) / 20.0f, 0.0f, 1.0f);
+    const float presence = std::clamp ((broadband + 60.0f) / 6.0f, 0.0f, 1.0f); // gaps between hits still count
 
-    // ---- Sameness: the last two seconds against the last ten. Both start as plain running
-    // means over the sound heard so far, so a fresh start (or a quiet intro) never
-    // leaves a stale average behind.
+    // ---- Without a tempo: the last two seconds against the last ten. Both start as
+    // plain running means over the sound heard so far, so a fresh start (or a quiet
+    // intro) never leaves a stale average behind.
     if (! silent)
     {
         ++soundFrames;
@@ -181,21 +210,15 @@ void Itch::analyseFrame() noexcept
         spread += std::abs (shortDb[(size_t) b] - longDb[(size_t) b]);
     specSim = 1.0f - std::clamp (spread / (float) numBands / 6.0f, 0.0f, 1.0f);
 
-    // ---- With a tempo: this bar against the last one (a loop scores near 1).
-    const bool tempo = transport.playing && transport.bpm > 0.0;
+    // ---- With a tempo: the repeat score, smoothed over about a bar.
+    const bool tempo = hasTempo();
     if (tempo && ! silent)
     {
-        const float barSeconds = (float) (transport.barQuarters * 60.0 / transport.bpm);
-        const int lag = (int) std::round (barSeconds / hopSeconds);
-
-        if (lag >= 2 && lag < historyFrames && framesSeen > lag)
+        const float score = repeatScore (db);
+        if (score >= 0.0f)
         {
-            const auto& then = history[(size_t) ((historyPos - lag + historyFrames) % historyFrames)];
-            float d = 0.0f;
-            for (int b = 0; b < numBands; ++b)
-                d += std::abs (db[(size_t) b] - then[(size_t) b]);
-            const float sim = 1.0f - std::clamp (d / (float) numBands / 9.0f, 0.0f, 1.0f);
-            barSim += (hopSeconds / 2.0f) * (sim - barSim);
+            barSim += std::min (1.0f, hopSeconds / std::max (1.0f, barSeconds())) * (score - barSim);
+            fastSim += (hopSeconds / 0.4f) * (score - fastSim);
         }
     }
 
@@ -204,7 +227,7 @@ void Itch::analyseFrame() noexcept
     ++framesSeen;
 
     if (! silent)
-        sameness = tempo ? 0.5f * (specSim + barSim) : specSim;
+        sameness = tempo ? barSim : specSim;
 
     // ---- Hits or sustain: onsets per second (a 6 dB jump from one frame to the next).
     const bool onset = ! silent && broadband - prevBroadband > 6.0f;
@@ -212,40 +235,38 @@ void Itch::analyseFrame() noexcept
     transient = std::clamp (onsetRate / 3.0f, 0.0f, 1.0f);
     prevBroadband = broadband;
 
-    // ---- Build. Below 60% Itch nothing builds: breathing only.
-    idleSeconds = knobsMoving ? 0.0f : idleSeconds + hopSeconds;
+    // ---- Count, in bars. Exact repetition fills the counter in `patience` bars;
+    // a bar of new material (a fill, a new section) empties it.
+    const float barsThisFrame = hopSeconds / barSeconds();
 
-    if (amount >= 0.6f)
+    if (autoOn && stage == idle && relief < 0.3f)
     {
-        const float fillSeconds = expMap (40.0f, 3.0f, (amount - 0.6f) / 0.4f);
         const float same = std::clamp ((sameness - 0.45f) / 0.5f, 0.0f, 1.0f);
-        const float hands = 0.5f + 0.5f * std::min (1.0f, idleSeconds / 20.0f);
-
-        if (active == none && relief < 0.3f)
-            level += hopSeconds * same * hands * presence / fillSeconds;
-
-        level -= hopSeconds * 0.12f * (1.0f - sameness);
-    }
-    else
-    {
-        level -= hopSeconds * 0.5f;
+        const float novelty = std::clamp ((0.8f - (tempo ? fastSim : sameness)) / 0.3f, 0.0f, 1.0f);
+        level += barsThisFrame * same * presence / (float) patience;
+        level -= barsThisFrame * novelty;
     }
 
+    if (! autoOn)
+        level -= hopSeconds * 2.0f;
     if (knobsMoving)
-        level -= hopSeconds * 0.4f;
+        level -= hopSeconds * 0.25f;
 
-    level = std::clamp (level, 0.0f, 1.5f);
+    level = std::clamp (level, 0.0f, 1.2f);
 }
 
 void Itch::tick (float ecology) noexcept
 {
     // ---- Transport between host updates.
-    const bool tempo = transport.playing && transport.bpm > 0.0;
+    const bool tempo = hasTempo();
     if (tempo)
         transport.ppq += transport.bpm / 60.0 * (double) dt;
 
+    const float progress = level / threshold;
+    const float tension = buildOn && autoOn && stage == idle ? smooth01 (progress) : 0.0f;
+
     // ---- Breathing: a 1/f walk plus a phase oscillator per node, the oscillators
-    // pulled together by Ecology.
+    // pulled together by Ecology. While the counter fills, the breathing deepens.
     const float coupling = evalPath (kuramotoPath, ecology);
     std::array<float, 4> pull {};
     for (int k = 0; k < 4; ++k)
@@ -253,7 +274,7 @@ void Itch::tick (float ecology) noexcept
             if (j != k)
                 pull[(size_t) k] += std::sin (phase[(size_t) j] - phase[(size_t) k]);
 
-    const float breathDepth = evalPath (breathPath, amount) * (1.0f - 0.6f * relief);
+    const float breathDepth = evalPath (breathPath, amount) * (1.0f - 0.6f * relief) * (1.0f + 0.6f * tension);
     for (int k = 0; k < 4; ++k)
     {
         auto& p = phase[(size_t) k];
@@ -264,32 +285,56 @@ void Itch::tick (float ecology) noexcept
         mods.breath[(size_t) k] = breathDepth * (0.55f * std::sin (p) + 0.45f * pink[(size_t) k].tick());
     }
 
+    // ---- Choose the next move a quarter of the way in, so the build can lean toward it.
+    if (stage == idle)
+    {
+        if (autoOn && pending == none && progress > 0.25f)
+        {
+            pending = chooseMove();
+            prepareMove (pending, 0.45f + 0.55f * amount);
+        }
+        else if (pending != none && (! autoOn || progress < 0.1f))
+        {
+            pending = none; // lost interest
+        }
+
+        moveAmount = buildOn && pending != none ? 0.3f * smooth01 ((progress - 0.25f) / 0.75f) : 0.0f;
+    }
+
     // ---- Fire.
     if (manualPending)
     {
         manualPending = false;
-        start (chooseGesture(), true);
+        fire (true);
     }
-    else if (active == none && level >= threshold)
+    else if (autoOn && stage == idle && level >= threshold)
     {
         armedSeconds += dt;
-        bool fire = true;
+        bool now = true;
 
         if (tempo)
         {
-            const double phraseQuarters = transport.barQuarters * (amount > 0.85f ? 2.0 : 4.0);
-            const auto phrase = (long long) std::floor (transport.ppq / phraseQuarters);
-            fire = phrase != lastPhrase || armedSeconds > 40.0f; // safety: never stuck armed
+            const auto phrase = (long long) std::floor (transport.ppq / (phraseBars * transport.barQuarters));
+            now = phrase != lastPhrase || armedSeconds > 60.0f; // safety: never stuck armed
         }
 
-        if (fire)
-            start (chooseGesture(), false);
+        if (now)
+            fire (false);
     }
 
     if (tempo)
-        lastPhrase = (long long) std::floor (transport.ppq / (transport.barQuarters * (amount > 0.85f ? 2.0 : 4.0)));
+        lastPhrase = (long long) std::floor (transport.ppq / (phraseBars * transport.barQuarters));
 
-    updateGesture();
+    // Auto switched off: an automatic move lets go at once.
+    if (! autoOn && ! manualMove && (stage == arriving || stage == holding))
+    {
+        stage = returning;
+        stageTime = 0.0f;
+        returnSeconds = 1.0f;
+        arriveFrom = moveAmount;
+    }
+
+    updateMove();
 
     // ---- Scars heal; at 0% Itch everything heals within seconds (fully predictable).
     const bool still = amount < 0.02f;
@@ -300,79 +345,161 @@ void Itch::tick (float ecology) noexcept
             scarKept[s] *= fastHealCoef;
     }
 
+    mods.ecologyAdd = applied.ecology;
+    mods.sizeRatio = applied.ratio;
+    mods.toneAdd = applied.tone;
+    mods.nodeGain = applied.gain;
     mods.scarDetune = scarNow[0] + scarKept[0];
     mods.scarEcho = scarNow[1] + scarKept[1];
     mods.scarTone = scarNow[2] + scarKept[2];
 }
 
-int Itch::chooseGesture() noexcept
+int Itch::chooseMove() noexcept
 {
-    std::array<float, numGestures> w {};
+    std::array<float, numMoves> w {};
     float total = 0.0f;
 
-    for (int g = 0; g < numGestures; ++g)
+    for (int m = 0; m < numMoves; ++m)
     {
-        w[(size_t) g] = transient * hitWeights[(size_t) g] + (1.0f - transient) * sustainWeights[(size_t) g];
-        if (g == lastGesture)
-            w[(size_t) g] *= 0.3f; // rarely the same scratch twice in a row
-        total += w[(size_t) g];
+        w[(size_t) m] = transient * hitWeights[(size_t) m] + (1.0f - transient) * sustainWeights[(size_t) m];
+        if (m == lastMove)
+            w[(size_t) m] *= 0.3f; // rarely the same move twice in a row
+        total += w[(size_t) m];
     }
 
     float r = rng.next01() * total;
-    for (int g = 0; g < numGestures; ++g)
+    for (int m = 0; m < numMoves; ++m)
     {
-        r -= w[(size_t) g];
+        r -= w[(size_t) m];
         if (r <= 0.0f)
-            return g;
+            return m;
     }
 
-    return numGestures - 1;
+    return numMoves - 1;
 }
 
-void Itch::start (int gesture, bool manual) noexcept
+void Itch::prepareMove (int move, float depth) noexcept
 {
-    active = gesture;
-    lastGesture = gesture;
-    elapsed = 0.0f;
-    level = 0.0f;
-    armedSeconds = 0.0f;
-    threshold = 1.0f + 0.12f * rng.nextBipolar();
-    ++scratchCount;
-
-    // Gestures are timed in beats and bars when there's a tempo, else as if at 120 BPM.
-    beat = transport.bpm > 0.0 ? std::clamp ((float) (60.0 / transport.bpm), 0.25f, 1.5f) : 0.5f;
-    bar = beat * (float) std::clamp (transport.barQuarters, 1.0, 8.0);
-    depth = manual ? 0.85f : 0.55f + 0.45f * smooth01 ((amount - 0.6f) / 0.4f);
-
+    target = {};
     const float r = rng.next01();
 
-    switch (gesture)
+    switch (move)
     {
-        case throwEcho: length = 2.0f * bar + 0.1f; break;
-        case runaway:   length = 2.25f * bar + 0.1f; break;
-        case dubDrop:
-            dropBeats = transient > 0.4f ? 1.0f : 2.0f;
-            length = dropBeats * beat + bar + 0.1f;
+        case open: // the space blooms: the parts talk more, the top opens
+            target.ecology = 0.22f * depth;
+            target.tone = 0.35f * depth;
             break;
-        case lurch:
-            ratio = r < 0.3f ? 2.0f : r < 0.6f ? 0.5f : r < 0.8f ? 1.5f : 0.75f;
-            length = 2.0f * bar + 0.1f;
+
+        case close: // the dub fader comes down: drier, darker
+            target.ecology = -0.25f * depth;
+            target.tone = -0.5f * depth;
             break;
-        case brake:     length = 2.0f * beat + 1.2f; break;
-        case grab:
-            grabLoop = std::clamp ((transient > 0.4f ? 0.25f : 0.5f) * beat, 0.06f, 0.6f);
-            grabHold = std::min (bar, 2.6f - grabLoop);
-            length = grabHold + 0.06f;
+
+        case step: // the delay time steps to a neighbouring value (a note value under Sync)
+            target.ratio = r < 0.35f ? 2.0f : r < 0.7f ? 0.5f : r < 0.85f ? 1.5f : 0.75f;
+            target.gain[0] = 1.0f + 0.4f * depth; // the echo leans forward while it builds
             break;
-        case retune:
-            ratio = r < 0.35f ? 1.5f : r < 0.6f ? 0.75f : r < 0.8f ? 2.0f : 0.5f;
-            length = 2.0f * bar + 0.2f;
+
+        case lean: // one node comes forward: echoes or the past on hits, shimmer or ring on sustain
+        {
+            const int node = transient > 0.4f ? (r < 0.5f ? 0 : 3) : (r < 0.5f ? 2 : 1);
+            for (int k = 0; k < 4; ++k)
+                target.gain[(size_t) k] = k == node ? 1.0f + 1.0f * depth : 1.0f - 0.2f * depth;
             break;
-        default: active = none; return;
+        }
+
+        case tilt: // the tone tips one way, and the Shift node's octaves follow it
+            target.tone = (r < 0.5f ? -0.6f : 0.6f) * depth;
+            break;
+
+        default: break;
     }
+}
+
+void Itch::fire (bool manual) noexcept
+{
+    int move = pending;
+    if (manual || move == none)
+    {
+        move = chooseMove();
+        prepareMove (move, manual ? std::max (0.8f, 0.45f + 0.55f * amount) : 0.45f + 0.55f * amount);
+    }
+
+    current = lastMove = move;
+    pending = none;
+    manualMove = manual;
+    stage = arriving;
+    stageTime = 0.0f;
+    arriveFrom = moveAmount;
+
+    // Timed in beats and bars at the host tempo, or as if at 120 BPM without one.
+    const float beat = transport.bpm > 0.0 ? std::clamp ((float) (60.0 / transport.bpm), 0.25f, 1.5f) : 0.5f;
+    const float bar = beat * (float) std::clamp (transport.barQuarters, 1.0, 8.0);
+    arriveSeconds = manual ? 0.12f : 0.25f * beat;
+    holdSeconds = (patience <= 4 ? 2.0f : 4.0f) * bar;
+    returnSeconds = 2.0f * bar;
+
+    level = 0.0f;
+    armedSeconds = 0.0f;
+    threshold = 1.0f + 0.08f * rng.nextBipolar();
+    ++scratchCount;
 
     if (amount >= 0.02f || manual)
         addScar();
+}
+
+void Itch::updateMove() noexcept
+{
+    relief = std::max (0.0f, relief - dt / 6.0f);
+
+    switch (stage)
+    {
+        case arriving:
+            stageTime += dt;
+            moveAmount = arriveFrom + (1.0f - arriveFrom) * smooth01 (stageTime / arriveSeconds);
+            if (stageTime >= arriveSeconds)
+            {
+                stage = holding;
+                stageTime = 0.0f;
+            }
+            break;
+
+        case holding:
+            stageTime += dt;
+            moveAmount = 1.0f;
+            if (stageTime >= holdSeconds)
+            {
+                stage = returning;
+                stageTime = 0.0f;
+                arriveFrom = 1.0f;
+            }
+            break;
+
+        case returning:
+            stageTime += dt;
+            moveAmount = arriveFrom * (1.0f - smooth01 (stageTime / returnSeconds));
+            if (stageTime >= returnSeconds)
+            {
+                stage = idle;
+                current = none;
+                manualMove = false;
+                moveAmount = 0.0f;
+                relief = 1.0f;
+            }
+            break;
+
+        case idle:
+        default: break;
+    }
+
+    // Continuous offsets ease toward the move (no zipper, no jump); a step is a switch
+    // halfway through, and the network's glide or crossfade carries it.
+    const float a = moveAmount;
+    applied.ecology += appliedCoef * (target.ecology * a - applied.ecology);
+    applied.tone += appliedCoef * (target.tone * a - applied.tone);
+    for (size_t k = 0; k < 4; ++k)
+        applied.gain[k] += appliedCoef * ((1.0f + (target.gain[k] - 1.0f) * a) - applied.gain[k]);
+    applied.ratio = a > 0.5f ? target.ratio : 1.0f;
 }
 
 void Itch::addScar() noexcept
@@ -382,76 +509,6 @@ void Itch::addScar() noexcept
 
     scarNow[s] = std::clamp (scarNow[s] + m, -scarLimit[s], scarLimit[s]);
     scarKept[s] = std::clamp (scarKept[s] + 0.15f * m, -scarLimit[s], scarLimit[s]);
-}
-
-void Itch::updateGesture() noexcept
-{
-    auto& m = mods;
-    m.echoSend = m.echoLoopAdd = m.loopAdd = m.couplingAdd = m.grabMix = 0.0f;
-    m.loopScale = m.dryGain = m.lurchRatio = m.retuneRatio = m.brakeSpeed = 1.0f;
-    m.braking = false;
-
-    // Relief lasts 8 s when itchy, down to 3 s when compulsive.
-    relief = std::max (0.0f, relief - dt / (8.0f - 5.0f * smooth01 ((amount - 0.6f) / 0.4f)));
-    holdSeconds = std::max (0.0f, holdSeconds - dt);
-
-    if (active != none)
-    {
-        const float t = elapsed;
-
-        switch (active)
-        {
-            case throwEcho:
-                m.echoSend = depth * 5.0f * envelope (t, 0.004f, 0.5f * beat, 0.03f);
-                m.echoLoopAdd = depth * 0.4f * envelope (t, 0.01f, bar, bar);
-                break;
-
-            case runaway:
-            {
-                const float build = envelope (t, 0.75f * bar, 0.75f * bar, 0.01f);
-                m.loopAdd = depth * 0.3f * build;
-                m.couplingAdd = 0.35f * build;
-                m.loopScale = 1.0f - 0.65f * envelope (t - 1.5f * bar, 0.01f, 0.25f * bar, 0.5f * bar);
-                break;
-            }
-
-            case dubDrop:
-                m.dryGain = 1.0f - 0.97f * envelope (t, 0.006f, dropBeats * beat, 0.015f);
-                m.echoSend = depth * 4.0f * envelope (t, 0.004f, 0.35f * beat, 0.03f);
-                m.echoLoopAdd = depth * 0.25f * envelope (t, 0.01f, dropBeats * beat, bar);
-                break;
-
-            case lurch:
-                m.lurchRatio = t < 2.0f * bar ? ratio : 1.0f;
-                break;
-
-            case brake:
-                m.braking = t < 2.0f * beat;
-                m.brakeSpeed = 1.0f - 0.6f * depth * smooth01 (t / (1.5f * beat));
-                break;
-
-            case grab:
-                m.grabMix = envelope (t, 0.008f, grabHold, 0.04f);
-                m.grabLoopSeconds = grabLoop;
-                break;
-
-            case retune:
-                m.retuneRatio = t < 2.0f * bar ? ratio : 1.0f;
-                break;
-
-            default: break;
-        }
-
-        elapsed += dt;
-        if (elapsed >= length)
-        {
-            active = none;
-            relief = 1.0f;
-            holdSeconds = 0.5f;
-        }
-    }
-
-    m.holdGain = active != none || holdSeconds > 0.0f;
 }
 
 std::array<float, 6> Itch::getScars() const noexcept

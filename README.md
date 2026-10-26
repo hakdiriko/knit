@@ -3,19 +3,22 @@
 A zero-setup audio effect (VST3, plus AU on macOS) built with JUCE. Put it on any track and turn anything.
 The repository is called `knit`; the plug-in is called **Dendrite** (it was called viber until 0.2.0, and sets saved with viber still open).
 
-**Status: 0.2 (the itch).** Four nodes (Echo, Resonator, Shift, Memory) feed each other, and the whole network breathes and, when it gets bored of repetition, scratches. Knobs:
+**Status: 0.3 (listening to Hakan).** Four nodes (Echo, Resonator, Shift, Memory) feed each other, and the whole network breathes. When it's allowed to, it notices repetition and, after the number of bars you choose, makes a move: it turns its own knobs for a few bars, then hands them back. Controls:
 
-| Knob | What you hear |
+| Control | What you hear |
 |---|---|
 | Ecology | how much the parts talk: colour → space → ringing → life (self-sustaining above ~75%) |
 | Size | small and close → huge and far |
 | Tone | dark (downward spirals) ↔ bright (shimmer) |
-| Itch | still → breathing → restless → itchy → compulsive. Past 60% it gets bored of repetition and scratches on a phrase boundary with a dub-desk gesture |
+| Itch | how alive: still → breathing → restless → feverish, and how far its moves go |
 | Mix | dry ↔ wet, equal power |
 | Output | trim after the automatic level matching |
 | Sync | locks Echo, Shift and Memory to the host tempo; Size picks the note value |
-| jump | A/B for Sync: off bends the pitch between note values like tape, on jumps cleanly |
-| Scratch | scratches now; every press (or MIDI-mapped toggle) scratches |
+| steady | delay times hold still (no flanging on drums), and time changes crossfade like Live's Delay in Fade mode |
+| auto | off (default): never breaks your loop by itself. On: moves after N bars of repetition |
+| after N bars | 4, 8, 16, 32 or 64 bars of repetition before an auto move |
+| build-up | while the bars fill, the network already leans toward its next move |
+| scratch | makes a move now, auto or not; MIDI-map it in Live to play it |
 
 Built for and tested on:
 - Windows 11 Pro 64-bit (build 26200)
