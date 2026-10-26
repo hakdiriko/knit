@@ -11,6 +11,12 @@ juce::String ecologyText (float v, int)
     return percent (v, 0) + juce::String::fromUTF8 (" \xc2\xb7 ") + regime;
 }
 
+juce::String itchText (float v, int)
+{
+    const char* regime = v < 0.02f ? "still" : v < 0.35f ? "breathing" : v < 0.6f ? "restless" : v < 0.85f ? "itchy" : "compulsive";
+    return percent (v, 0) + juce::String::fromUTF8 (" \xc2\xb7 ") + regime;
+}
+
 juce::String decibels (float v, int)
 {
     return (v > 0.0f ? "+" : "") + juce::String (v, 1) + " dB";
@@ -19,10 +25,11 @@ juce::String decibels (float v, int)
 float fromPercent (const juce::String& text) { return text.retainCharacters ("0123456789.-").getFloatValue() / 100.0f; }
 } // namespace
 
-ViberProcessor::ViberProcessor()
+DendriteProcessor::DendriteProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", juce::AudioChannelSet::stereo(), true)
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      // The state's type stays "viber": sets saved before the rename still recall.
       parameters (*this, nullptr, "viber", createParameterLayout())
 {
     ecologyParam = parameters.getRawParameterValue (ParamIDs::ecology);
@@ -31,11 +38,14 @@ ViberProcessor::ViberProcessor()
     mixParam = parameters.getRawParameterValue (ParamIDs::mix);
     outputParam = parameters.getRawParameterValue (ParamIDs::output);
     syncParam = parameters.getRawParameterValue (ParamIDs::sync);
+    itchParam = parameters.getRawParameterValue (ParamIDs::itch);
+    scratchParam = parameters.getRawParameterValue (ParamIDs::scratch);
+    jumpParam = parameters.getRawParameterValue (ParamIDs::jump);
     bypassParam = dynamic_cast<juce::AudioParameterBool*> (parameters.getParameter (ParamIDs::bypass));
     jassert (bypassParam != nullptr);
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout ViberProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout DendriteProcessor::createParameterLayout()
 {
     using Float = juce::AudioParameterFloat;
     using Attributes = juce::AudioParameterFloatAttributes;
@@ -59,11 +69,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout ViberProcessor::createParame
                                                      .withLabel ("dB")),
                 std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::bypass, 1 }, "Bypass", false),
                 // Added in 0.1.1, so version hint 2 (AU keeps parameter order by it).
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::sync, 2 }, "Sync", false));
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::sync, 2 }, "Sync", false),
+                // Added in 0.2.0, version hint 3.
+                std::make_unique<Float> (juce::ParameterID { ParamIDs::itch, 3 }, "Itch", unit, 0.45f,
+                                         Attributes().withStringFromValueFunction (itchText)
+                                                     .withValueFromStringFunction (fromPercent)),
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::scratch, 3 }, "Scratch", false),
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::jump, 3 }, "Sync jump", false));
     return layout;
 }
 
-void ViberProcessor::prepareToPlay (double sampleRate, int)
+void DendriteProcessor::prepareToPlay (double sampleRate, int)
 {
     const auto sr = (float) sampleRate;
 
@@ -79,12 +95,12 @@ void ViberProcessor::prepareToPlay (double sampleRate, int)
     resetDsp();
 }
 
-void ViberProcessor::reset()
+void DendriteProcessor::reset()
 {
     resetDsp();
 }
 
-double ViberProcessor::hostBpm() const
+double DendriteProcessor::hostBpm() const
 {
     // Real-time safe: getPosition() only copies the host's transport state.
     if (auto* head = getPlayHead())
@@ -95,11 +111,15 @@ double ViberProcessor::hostBpm() const
     return 0.0;
 }
 
-void ViberProcessor::resetDsp()
+void DendriteProcessor::resetDsp()
 {
     network.setSync (syncParam->load() >= 0.5f, hostBpm());
+    network.setSyncJump (jumpParam->load() >= 0.5f);
     network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
+    network.setItch (itchParam->load(), false);
     network.reset();
+    lastScratch = scratchParam->load() >= 0.5f;
+    lastKnobs = { ecologyParam->load(), sizeParam->load(), toneParam->load(), mixParam->load(), itchParam->load() };
     autoGain.reset();
     limiter.reset();
     mixSm.setCurrentAndTargetValue (mixParam->load());
@@ -107,7 +127,7 @@ void ViberProcessor::resetDsp()
     bypassSm.setCurrentAndTargetValue (bypassParam->get() ? 1.0f : 0.0f);
 }
 
-bool ViberProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool DendriteProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto out = layouts.getMainOutputChannelSet();
 
@@ -117,7 +137,7 @@ bool ViberProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
     return layouts.getMainInputChannelSet() == out;
 }
 
-void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -130,9 +150,45 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     if (numIn == 0 || numSamples == 0)
         return;
 
-    const double bpm = hostBpm();
+    // Transport: tempo for Sync, song position and play state for the itch's phrases.
+    dendrite::dsp::Itch::Transport transport;
+    if (auto* head = getPlayHead())
+        if (const auto position = head->getPosition())
+        {
+            transport.bpm = position->getBpm().orFallback (0.0);
+            transport.ppq = position->getPpqPosition().orFallback (0.0);
+            transport.playing = position->getIsPlaying();
+            if (const auto sig = position->getTimeSignature())
+                if (sig->numerator > 0 && sig->denominator > 0)
+                    transport.barQuarters = 4.0 * sig->numerator / sig->denominator;
+        }
+    const double bpm = transport.bpm;
+
+    // Moving any knob is novelty: it drains the itch.
+    const std::array<float, 5> knobs { ecologyParam->load(), sizeParam->load(), toneParam->load(), mixParam->load(), itchParam->load() };
+    bool moving = false;
+    for (size_t k = 0; k < knobs.size(); ++k)
+        moving = moving || std::abs (knobs[k] - lastKnobs[k]) > 1.0e-4f;
+    lastKnobs = knobs;
+
+    const bool scratch = scratchParam->load() >= 0.5f;
+    if (scratch != lastScratch)
+        network.triggerScratch();
+    lastScratch = scratch;
+
+    if (scarsPending.exchange (false, std::memory_order_acquire))
+    {
+        std::array<float, 6> loaded {};
+        for (size_t i = 0; i < loaded.size(); ++i)
+            loaded[i] = scarsLoaded[i].load (std::memory_order_relaxed);
+        network.getItch().setScars (loaded);
+    }
+
     network.setSync (syncParam->load() >= 0.5f, bpm);
+    network.setSyncJump (jumpParam->load() >= 0.5f);
     network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
+    network.setItch (itchParam->load(), moving);
+    network.setTransport (transport);
     mixSm.setTargetValue (mixParam->load());
     trimSm.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
     bypassSm.setTargetValue (bypassParam->get() ? 1.0f : 0.0f);
@@ -150,7 +206,8 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
             dryR[(size_t) i] = right != nullptr ? right[start + i] : dryL[(size_t) i];
         }
 
-        network.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n);
+        network.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), dryDuck.data(), n);
+        autoGain.setHold (network.wantsGainHold());
         autoGain.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n);
 
         for (int i = 0; i < n; ++i)
@@ -158,8 +215,12 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
             const size_t s = (size_t) i;
 
             // Equal-power crossfade: perceived loudness stays level across the Mix travel.
-            const float m = mixSm.getNextValue() * 0.5f * viber::dsp::pi;
-            const float dryGain = std::cos (m), wetGain = std::sin (m);
+            const float mix = mixSm.getNextValue();
+            const float m = mix * 0.5f * dendrite::dsp::pi;
+            // The dub drop ducks the dry. Near Mix 0% there are no echoes to hear in the
+            // hole, so it fades out of the way.
+            const float duck = 1.0f - (1.0f - dryDuck[s]) * std::min (1.0f, 2.5f * mix);
+            const float dryGain = std::cos (m) * duck, wetGain = std::sin (m);
             const float trim = trimSm.getNextValue();
 
             float l = (dryGain * dryL[s] + wetGain * wetL[s]) * trim;
@@ -185,6 +246,14 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     echoNoteForUi.store (network.getEchoNote(), std::memory_order_relaxed);
     hostHasTempo.store (bpm > 0.0, std::memory_order_relaxed);
 
+    const auto& itch = network.getItch();
+    itchLevelForUi.store (itch.getLevel(), std::memory_order_relaxed);
+    gestureForUi.store (itch.getActiveGesture(), std::memory_order_relaxed);
+    scratchCountForUi.store (itch.getScratchCount(), std::memory_order_relaxed);
+    const auto scars = itch.getScars();
+    for (size_t i = 0; i < scars.size(); ++i)
+        scarsSaved[i].store (scars[i], std::memory_order_relaxed);
+
     // NaN/Inf guard: never hand a non-finite sample to the host. Silence this block
     // and start the network from scratch.
     for (int ch = 0; ch < numIn; ++ch)
@@ -201,25 +270,56 @@ void ViberProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 }
 
-juce::AudioProcessorEditor* ViberProcessor::createEditor()
+juce::AudioProcessorEditor* DendriteProcessor::createEditor()
 {
-    return new ViberEditor (*this);
+    return new DendriteEditor (*this);
 }
 
-void ViberProcessor::getStateInformation (juce::MemoryBlock& destData)
+void DendriteProcessor::pressScratch()
 {
-    if (auto xml = parameters.copyState().createXml())
+    if (auto* p = parameters.getParameter (ParamIDs::scratch))
+    {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->getValue() < 0.5f ? 1.0f : 0.0f);
+        p->endChangeGesture();
+    }
+}
+
+void DendriteProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    auto state = parameters.copyState();
+
+    // The scars travel with the set, so a reopened set is the same creature.
+    juce::StringArray scars;
+    for (auto& v : scarsSaved)
+        scars.add (juce::String (v.load (std::memory_order_relaxed), 5));
+    state.setProperty ("scars", scars.joinIntoString (" "), nullptr);
+
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
-void ViberProcessor::setStateInformation (const void* data, int sizeInBytes)
+void DendriteProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (parameters.state.getType()))
-            parameters.replaceState (juce::ValueTree::fromXml (*xml));
+        {
+            auto state = juce::ValueTree::fromXml (*xml);
+
+            const auto scars = juce::StringArray::fromTokens (state.getProperty ("scars").toString(), " ", "");
+            for (size_t i = 0; i < scarsLoaded.size(); ++i)
+            {
+                const float v = (int) i < scars.size() ? scars[(int) i].getFloatValue() : 0.0f;
+                scarsLoaded[i].store (v, std::memory_order_relaxed);
+                scarsSaved[i].store (v, std::memory_order_relaxed);
+            }
+            scarsPending.store (true, std::memory_order_release);
+
+            parameters.replaceState (state);
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new ViberProcessor();
+    return new DendriteProcessor();
 }

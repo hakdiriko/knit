@@ -34,8 +34,9 @@ JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync")  # params not expected to change character
-# "sync" needs a host tempo, and pedalboard has no play head, so it is a no-op here.
+SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch")  # params not expected to change character
+# "sync" (and "sync_jump") need a host tempo, and pedalboard has no play head, so they are no-ops here.
+# "scratch" is a trigger: only a flip during playback scratches, and every render here starts from reset.
 
 
 # ---------------------------------------------------------------- test signals

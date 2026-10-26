@@ -1,9 +1,10 @@
 #pragma once
 
+#include "Itch.h"
 #include "Primitives.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 
-namespace viber::dsp
+namespace dendrite::dsp
 {
 // The "ecosystem": four nodes (Echo, Resonator, Shift, Memory), each a delay with a
 // filter, a soft saturator and a DC blocker in its loop. A coupling matrix mixes
@@ -33,16 +34,33 @@ public:
     // leaves them free. The Resonator always stays free, so it keeps its pitch.
     void setSync (bool enabled, double bpm) noexcept;
 
+    // Sync steps: false bends the pitch between note values (tape), true jumps
+    // cleanly by crossfading two read heads (the A/B for 0.2).
+    void setSyncJump (bool jump) noexcept { syncJump = jump; }
+
+    // The itch (see Itch.h). Amount is the Itch knob, 0..1.
+    void setItch (float amount, bool knobsMoving) noexcept;
+    void setTransport (const Itch::Transport& t) noexcept { itch.setTransport (t); }
+    void triggerScratch() noexcept { itch.triggerManual(); }
+    const Itch& getItch() const noexcept { return itch; }
+    Itch& getItch() noexcept { return itch; }
+
+    // While a scratch plays, auto-gain should hold, or it would iron the gesture flat.
+    bool wantsGainHold() const noexcept { return itch.getMods().holdGain; }
+
     // The Echo node's current note value as an index for noteName(), or -1 when free.
     int getEchoNote() const noexcept { return echoNote; }
     static const char* noteName (int index) noexcept;
 
-    // Renders one sub-block of wet signal. inL/inR may alias (mono).
-    void process (const float* inL, const float* inR, float* outL, float* outR, int numSamples) noexcept;
+    // Renders one sub-block of wet signal. inL/inR may alias (mono). dryGain receives
+    // the gain the dry signal should get per sample (the dub drop ducks it).
+    void process (const float* inL, const float* inR, float* outL, float* outR, float* dryGain, int numSamples) noexcept;
 
 private:
     void updateControl() noexcept;
     float readShift() noexcept;
+    float readShiftAt (float base) const noexcept;
+    float readGrab() noexcept;
     float readMemory() noexcept;
     float nextGrainDelay() noexcept;
 
@@ -53,7 +71,7 @@ private:
 
     juce::SmoothedValue<float> ecologySm, sizeSm, toneSm;
 
-    bool syncEnabled = false, memorySynced = false;
+    bool syncEnabled = false, memorySynced = false, syncJump = false;
     float beatSeconds = 0.0f;
     int echoNote = -1;
 
@@ -66,7 +84,7 @@ private:
 
     // Per-node targets computed at control rate.
     std::array<float, numNodes> targetDelay {}, currentDelay {}, glideCoef {};
-    std::array<float, numNodes> loopGain {}, drive {}, panL {}, panR {}, injectSide {};
+    std::array<float, numNodes> loopGain {}, drive {}, panL {}, panR {}, injectSide {}, outLevel {};
     float coupling = 0.0f, diffusion = 0.0f;
 
     // Shift node: two pairs of crossfaded read heads (octave up, octave down).
@@ -90,5 +108,22 @@ private:
     // instead of running forever.
     float inputEnvelope = 0.0f, presence = 1.0f;
     float envAttack = 0.0f, envRelease = 0.0f, presenceCoef = 0.0f;
+
+    // The itch and what its gestures need at audio rate.
+    Itch itch;
+    float echoSendGain = 1.0f;
+    bool jumpMode = false;
+
+    // Clean jumps for Echo and Shift: the old read head fades out while the new one
+    // fades in (equal power, 25 ms), so a time change has no pitch bend and no click.
+    std::array<float, numNodes> fadeFrom {}, fadePos {};
+    float fadeStep = 0.001f;
+
+    // Tape brake: the read heads fall behind the write head while braking (pitch
+    // and time drop together), then catch up along a curve (pitch rises back).
+    float brakeOffset = 0.0f, brakeCatchUp = 0.0f, brakeLimit = 0.0f;
+
+    // Grab: the Memory node loops one short moment from just before the grab.
+    int grabElapsed = 0;
 };
-} // namespace viber::dsp
+} // namespace dendrite::dsp

@@ -8,7 +8,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(viber VERSION 0.1.1 LANGUAGES C CXX)
+project(dendrite VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,18 +20,20 @@ FetchContent_Declare(JUCE
     GIT_SHALLOW ON)
 FetchContent_MakeAvailable(JUCE)
 
-set(VIBER_FORMATS VST3)
+set(DENDRITE_FORMATS VST3)
 if(APPLE)
-    list(APPEND VIBER_FORMATS AU)
+    list(APPEND DENDRITE_FORMATS AU)
 endif()
 
-juce_add_plugin(viber
+# Renamed from viber in 0.2.0. The codes (and the bundle id) never change: hosts find
+# the plug-in by them, so saved Live sets keep the device.
+juce_add_plugin(dendrite
     COMPANY_NAME "hakdiriko"
     BUNDLE_ID "com.hakdiriko.viber"
     PLUGIN_MANUFACTURER_CODE Hakd
     PLUGIN_CODE Vibr
-    PRODUCT_NAME "viber"
-    FORMATS ${VIBER_FORMATS}
+    PRODUCT_NAME "Dendrite"
+    FORMATS ${DENDRITE_FORMATS}
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
@@ -41,18 +43,19 @@ juce_add_plugin(viber
     AU_MAIN_TYPE kAudioUnitType_Effect
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
-target_sources(viber PRIVATE
+target_sources(dendrite PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/dsp/Network.cpp)
+    Source/dsp/Network.cpp
+    Source/dsp/Itch.cpp)
 
-target_compile_definitions(viber PUBLIC
+target_compile_definitions(dendrite PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
-target_link_libraries(viber
+target_link_libraries(dendrite
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp

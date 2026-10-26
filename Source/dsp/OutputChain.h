@@ -2,7 +2,7 @@
 
 #include "Primitives.h"
 
-namespace viber::dsp
+namespace dendrite::dsp
 {
 // Wet auto-gain: slow RMS envelopes on the input and on the wet signal pull the wet
 // level toward the input level (within +-12 dB). Without it, louder settings simply
@@ -24,6 +24,7 @@ public:
         gain = 1.0f;
         targetGain = 1.0f;
         counter = 0;
+        hold = false;
     }
 
     // Power is averaged over both channels (not mono-summed), so a wide, decorrelated
@@ -37,10 +38,13 @@ public:
             // Same fast-rise / slow-fall shape on both sides: a wet that suddenly gets
             // louder than the input is pulled back within ~100 ms, while steady
             // material sees an unbiased ratio.
-            inPower += (d > inPower ? attackCoef : releaseCoef) * (d - inPower);
-            wetPower += (w > wetPower ? attackCoef : releaseCoef) * (w - wetPower);
+            if (! hold)
+            {
+                inPower += (d > inPower ? attackCoef : releaseCoef) * (d - inPower);
+                wetPower += (w > wetPower ? attackCoef : releaseCoef) * (w - wetPower);
+            }
 
-            if (++counter >= 32)
+            if (++counter >= 32 && ! hold)
             {
                 counter = 0;
                 // Hold the gain while the input is (nearly) silent, so tails and
@@ -55,12 +59,17 @@ public:
         }
     }
 
+    // While a scratch plays, everything freezes: the gesture is heard at its real
+    // level, and afterwards the gain carries on from where it was, with no dip.
+    void setHold (bool shouldHold) noexcept { hold = shouldHold; }
+
 private:
     static constexpr float minGain = 0.2511886f; // -12 dB
     static constexpr float maxGain = 3.9810717f; // +12 dB
     float attackCoef = 0.0f, releaseCoef = 0.0f, gainCoef = 0.0f;
     float inPower = 0.0f, wetPower = 0.0f, gain = 1.0f, targetGain = 1.0f;
     int counter = 0;
+    bool hold = false;
 };
 
 // Safety limiter: a seatbelt, not an effect. Instant attack guarantees no sample
@@ -90,4 +99,4 @@ private:
     static constexpr float ceiling = 0.9660509f; // -0.3 dBFS
     float releaseCoef = 0.0f, gain = 1.0f;
 };
-} // namespace viber::dsp
+} // namespace dendrite::dsp
