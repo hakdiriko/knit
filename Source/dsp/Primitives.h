@@ -68,35 +68,104 @@ private:
 };
 
 //==============================================================================
-// Topology-preserving-transform state-variable lowpass (Zavalishin). Stays stable
-// and smooth when its cutoff moves every few samples.
-class SvfLowpass
+// Topology-preserving-transform state-variable filter (Zavalishin) with all three
+// outputs. Stays stable and smooth when its cutoff moves every few samples.
+class Svf
 {
 public:
     void setCoefficients (float cutoffHz, float q, float sampleRate) noexcept
     {
-        const float g = std::tan (pi * cutoffHz / sampleRate);
-        const float k = 1.0f / q;
+        const float g = std::tan (pi * std::min (cutoffHz, 0.45f * sampleRate) / sampleRate);
+        k = 1.0f / q;
         a1 = 1.0f / (1.0f + g * (g + k));
         a2 = g * a1;
         a3 = g * a2;
     }
 
-    float process (float x) noexcept
+    void process (float x, float& lp, float& bp, float& hp) noexcept
     {
         const float v3 = x - ic2;
         const float v1 = a1 * ic1 + a2 * v3;
         const float v2 = ic2 + a2 * ic1 + a3 * v3;
         ic1 = 2.0f * v1 - ic1;
         ic2 = 2.0f * v2 - ic2;
-        return v2;
+        lp = v2;
+        bp = v1;
+        hp = x - k * v1 - v2;
     }
 
+    float damping() const noexcept { return k; }
     void reset() noexcept { ic1 = ic2 = 0.0f; }
 
 private:
-    float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f;
+    float k = 1.41421356f, a1 = 1.0f, a2 = 0.0f, a3 = 0.0f;
     float ic1 = 0.0f, ic2 = 0.0f;
+};
+
+// Linkwitz-Riley 4th-order crossover: two Butterworth sections on each side. The two
+// halves sum to an allpass, so splitting and summing back colours nothing.
+class Crossover
+{
+public:
+    void setFrequency (float hz, float sampleRate) noexcept
+    {
+        for (auto* f : { &lo1, &lo2, &hi1, &hi2 })
+            f->setCoefficients (hz, 0.70710678f, sampleRate);
+    }
+
+    void split (float x, float& low, float& high) noexcept
+    {
+        float lp, bp, hp, unused;
+        lo1.process (x, lp, bp, hp);
+        lo2.process (lp, low, bp, unused);
+        hi1.process (x, lp, bp, hp);
+        hi2.process (hp, unused, bp, high);
+    }
+
+    void reset() noexcept
+    {
+        for (auto* f : { &lo1, &lo2, &hi1, &hi2 })
+            f->reset();
+    }
+
+private:
+    Svf lo1, lo2, hi1, hi2;
+};
+
+// The allpass a Crossover adds. A band that skips a split passes through one, so all
+// bands stay in phase when they are summed.
+class CrossoverAllpass
+{
+public:
+    void setFrequency (float hz, float sampleRate) noexcept { svf.setCoefficients (hz, 0.70710678f, sampleRate); }
+
+    float process (float x) noexcept
+    {
+        float lp, bp, hp;
+        svf.process (x, lp, bp, hp);
+        return x - 2.0f * svf.damping() * bp;
+    }
+
+    void reset() noexcept { svf.reset(); }
+
+private:
+    Svf svf;
+};
+
+// One-pole lowpass (6 dB/oct).
+class OnePoleLowpass
+{
+public:
+    void setCutoff (float cutoffHz, float sampleRate) noexcept
+    {
+        a = 1.0f - std::exp (-2.0f * pi * cutoffHz / sampleRate);
+    }
+
+    float process (float x) noexcept { return s += a * (x - s); }
+    void reset() noexcept { s = 0.0f; }
+
+private:
+    float a = 1.0f, s = 0.0f;
 };
 
 // One-pole highpass (6 dB/oct): keeps low-end mud from building up in a loop.
@@ -193,47 +262,6 @@ private:
     uint32_t state = 0x9e3779b9u;
 };
 
-// Smoothed random walk: a new random target every period, approached through a
-// one-pole lowpass. Unlike an LFO it never repeats, so the ear can't find the loop.
-class RandomWalk
-{
-public:
-    void prepare (float updateRateHz, float periodSeconds, uint32_t seed)
-    {
-        periodTicks = std::max (1, (int) (periodSeconds * updateRateHz));
-        coefficient = 1.0f - std::exp (-1.0f / (0.7f * (float) periodTicks));
-        seedValue = seed;
-        reset();
-    }
-
-    // Re-seeds, so every reset replays the same walk: renders are repeatable.
-    void reset() noexcept
-    {
-        rng.seed (seedValue);
-        value = 0.0f;
-        target = rng.nextBipolar();
-        ticks = 0;
-    }
-
-    // Call once per control tick; returns a value in roughly [-1, 1].
-    float tick() noexcept
-    {
-        if (++ticks >= periodTicks)
-        {
-            ticks = 0;
-            target = rng.nextBipolar();
-        }
-        value += coefficient * (target - value);
-        return value;
-    }
-
-private:
-    Rng rng;
-    uint32_t seedValue = 1;
-    int periodTicks = 1, ticks = 0;
-    float coefficient = 0.1f, value = 0.0f, target = 0.0f;
-};
-
 // 1/f ("pink") control signal, Voss-McCartney style: eight held random sources, the
 // k-th redrawn every 2^k steps, summed. Each octave of modulation rate carries about
 // the same energy, so there are slow swells with smaller swells inside them, the
@@ -295,36 +323,6 @@ private:
     float coefficient = 0.1f, value = 0.0f;
 };
 
-// TPT state-variable bandpass, used to analyse the input (not in the signal path).
-class SvfBandpass
-{
-public:
-    void setCoefficients (float centreHz, float q, float sampleRate) noexcept
-    {
-        const float g = std::tan (pi * std::min (centreHz, 0.45f * sampleRate) / sampleRate);
-        k = 1.0f / q;
-        a1 = 1.0f / (1.0f + g * (g + k));
-        a2 = g * a1;
-        a3 = g * a2;
-    }
-
-    float process (float x) noexcept
-    {
-        const float v3 = x - ic2;
-        const float v1 = a1 * ic1 + a2 * v3;
-        const float v2 = ic2 + a2 * ic1 + a3 * v3;
-        ic1 = 2.0f * v1 - ic1;
-        ic2 = 2.0f * v2 - ic2;
-        return k * v1; // unity gain at the centre
-    }
-
-    void reset() noexcept { ic1 = ic2 = 0.0f; }
-
-private:
-    float k = 1.0f, a1 = 1.0f, a2 = 0.0f, a3 = 0.0f;
-    float ic1 = 0.0f, ic2 = 0.0f;
-};
-
 //==============================================================================
 // Macro paths: one knob drives many hidden parameters, each along its own curve.
 // Smoothstep between breakpoints, so there are no corners and no audible kinks.
@@ -348,6 +346,21 @@ float evalPath (const std::array<Breakpoint, N>& p, float x) noexcept
         }
 
     return p[N - 1].y;
+}
+
+// Soft clipper shaped like tanh (within 2%), reaching exactly 1 with zero slope at 3: cheap
+// enough to run on every line of the room every sample.
+inline float fastTanh (float x) noexcept
+{
+    x = std::clamp (x, -3.0f, 3.0f);
+    const float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
+
+inline float smooth01 (float t) noexcept
+{
+    t = std::clamp (t, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
 }
 
 // Perceptual (exponential) mapping for frequencies and times.

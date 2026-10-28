@@ -34,10 +34,9 @@ JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch", "auto", "after", "build")  # params not expected to change character
-# "sync" (and "sync_jump") need a host tempo, and pedalboard has no play head, so they are no-ops here.
-# "scratch" is a trigger: only a flip during playback scratches, and every render here starts from reset.
-# "auto_moves", "after" and "build_up" act after 4 to 64 bars of repetition, far longer than a render here.
+SKIP_PARAM_WORDS = ("bypass", "output", "trim", "wear")  # params not expected to change character
+# "wear" acts only while the host's transport plays, after bars of repetition. pedalboard reports a
+# stopped transport, so here it is a no-op; tools/wear_check.py (or a render on the tape's own DSP) covers it.
 
 
 # ---------------------------------------------------------------- test signals

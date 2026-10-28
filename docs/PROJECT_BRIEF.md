@@ -54,12 +54,23 @@ Two Fular ideas are worth keeping: **tape-style slowdown** (pitch and speed chan
 3. **It lives.** Slow internal motion makes the output evolve even when nobody touches it, so accidents happen while you're just listening.
 4. **Safe at the edges.** Feedback may self-oscillate, but saturation inside every loop and a limiter at the output make it impossible to wreck a mix or a pair of speakers.
 5. **Input-agnostic.** Drums, voice, a pad, a field recording, or a full mix must all produce something worth keeping. Test with all of them.
-6. **Few controls, deep behaviour.** No more than 8 main knobs. Depth comes from how parameters interact, not from how many there are.
+6. **Few controls, deep behaviour.** Since 0.4.0, three knobs. Depth comes from how parameters interact, not from how many there are. An A/B is a temporary build or an audio sketch, never a permanent switch.
 7. **Sound first on insert.** The default state, at the default Mix, already does something beautiful.
+8. **Organic, never metallic.** Hakan's own motto for his sonic art: micro-modulation, fluctuation, warmth, randomness. Few sharp, evenly spaced resonances are what metal sounds like; avoid them by design and measure for them.
 
 ---
 
-## Core concept (V1 direction — revise after prototypes if listening says so)
+## Core concept since 0.4.0: the tape and the room
+
+Hakan tested 0.3 and found it metallic, crowded and cheap in its moves, so 0.4.0 started the sound over (his call, 2026-10-28):
+
+- **The tape** (in series, no dry copy beside it): **wear** (a 4-bar tape loop of 64 sixteenths × 4 bands; a part that sounds the same as 4 or 8 bars ago wears its place on the tape, new material heals it) and **friction** (the material: saturation, wow and flutter, grain, dust).
+- **The room**: a dense, drifting, absorbent space; what wears off the tape falls into it.
+- Three knobs: wear, friction, room. It fits Corpus (Bahadırhan Koçer's platform, where dendrite will be published), whose tapes wear and where "sound gets back its mass, its friction and its room".
+
+The rest of this section is the V1 concept (0.1–0.3), kept for history.
+
+## Core concept (V1, replaced at 0.4.0)
 
 ### "Ecosystem": a small network of nodes that feed into each other
 

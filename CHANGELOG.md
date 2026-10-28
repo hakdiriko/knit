@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 (reset: the tape and the room)
+
+You tested 0.3 and found it metallic, crowded with controls, slow to count bars and cheap in its moves. All four came from the engine, so the engine is new.
+
+- **dendrite is written lowercase**, everywhere, including the name Live shows. Sets saved with earlier versions still open in the same slot (the codes that identify it haven't changed), with the new knobs at their defaults.
+- **Three knobs, nothing else.** wear, friction, room. Ecology, Size, Tone, Itch, Mix, Output, Sync, steady, auto, after N bars, build-up and scratch are gone. Bypass is still there for Live, with no button.
+- **The sound goes through a tape, then into a room.** The tape is in series: there is no dry copy beside a moving copy, so nothing can comb-filter or flange, on drums or anywhere.
+- **wear** replaces the itch, and there are no events any more. The tape is a 4-bar loop cut into 64 sixteenths in 4 bands. Each time a sixteenth plays something that sounds the same as 4 or 8 bars ago, it loses a little oxide in that band. Weak stretches go first, and wear speeds up as it goes, so a loop that never changes slowly disintegrates at fixed places, like a tape loop played to death. The worn spots follow a fine oxide texture, so they are irregular flakes, never a gate on the grid. Anything new heals it: a new hit comes through clean at once, and sixteenths that changed grow back. What wears off falls into the room. The knob says roughly how long it takes: "30% · ~36 bars" (drums wear in about half that, long pads in about 1.5 times). At 0 it never wears. When Live stops, the tape stops and the damage gets out of the way.
+- **friction** is the material: tape saturation with the highs giving first and a touch of even harmonics, 1/f wow and flutter (a few cents at the middle, a dragging tape at the top), the tape's own grain riding the signal, and dust where the sound wore away. clean → warm → worn → rough.
+- **room** is new and built against the metal: 32 delay lines with irregular lengths and an allpass inside each loop, every line drifting slowly on its own, highs dying 3 to 6 times faster than lows. none → wood → hall → afterlife (up to 30 s, dark). Measured on a noise burst, its tail is as dense as Gaussian noise at every setting; 0.3's network reached about a third of that, and pushing Tone and Ecology made its tail strongly periodic, which is what metal sounds like.
+- **The window** shows the tape: 64 slivers of oxide, dark when fresh, pale where worn, with the head moving across.
+- The tape adds 4 ms of latency, reported to Live, which compensates for it.
+
 ## 0.3.0 (test: listening to Hakan)
 
 What you heard in 0.2, and what changed:

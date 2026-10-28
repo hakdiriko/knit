@@ -60,7 +60,7 @@ The boundaries between regimes are where discovery happens. Place them at differ
 
 ---
 
-## 3. The network: bounded feedback
+## 3. The network: bounded feedback (0.1–0.3; the principles still apply to the room)
 
 **Mechanism:** in a feedback loop, energy grows when loop gain is above 1 and decays when it is below 1. Real-world energy is bounded by the physical medium. We reproduce that with a saturator inside every loop, so the network can sit above unity gain without blowing up. It sustains at the level where the saturator's average gain falls back to exactly 1. That is a self-oscillating drone that still reacts to the input.
 
@@ -103,7 +103,7 @@ At `c = 0` the nodes stay apart. At `c = 1` every node hears every other one, wh
 
 ---
 
-## 5. Memory and tape slowdown
+## 5. Memory and tape slowdown (planned for V1, not built)
 
 **Mechanism:** a real-time plug-in can't play faster than the present, but it *can* fall behind it. A buffer that is always recording turns "slow down" into "read the past at less than 1× speed". The lag between write and read grows as long as the slowdown lasts, so the slowdown is limited only by the buffer's length.
 
@@ -168,7 +168,17 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 
 ---
 
-## 10. Quality checklist ("doesn't feel cheap")
+## 10. The tape and the room (0.4.0)
+
+**Why 0.3 sounded metallic.** Metal rings because its modes are few, sharp and evenly spaced. The 0.3 network was four loops through a fixed matrix plus a 2–15 ms comb at up to 1.12 loop gain: exactly that. Measured on a noise burst, its tail had about a third of the echo density of Gaussian noise, and at high Tone/Ecology its cepstrum showed a periodicity peak 6.6× the noise floor.
+
+**The room** pushes the other way: 32 lines with irregular lengths, Hadamard mixing, an allpass inside every loop (echo density explodes within a few passes), a slow 1/f drift per line (no mode sits still long enough to ring), and a one-pole shelf per line so highs decay 3–6× faster than lows. Measure any change to it with normalised echo density (Abel & Huang) and the cepstrum of the tail, against noise.
+
+**Nothing in parallel with a moving copy.** Dry plus a time-modulated copy is a sweeping comb (flanging). The tape is in series, so its wow is only pitch drift.
+
+**Wear** is state, not an event: per-sixteenth, per-band damage on a 4-bar tape, grown by repetition (vs 4 and 8 bars ago), healed by novelty, shown through a fixed 1/f oxide texture so the worn spots are irregular. Cells are counted in play order, so Live's loop brace keeps wearing the same tape. It only moves while the transport plays, so check it with `tools/wear_check.py`, not the audit.
+
+## 11. Quality checklist ("doesn't feel cheap")
 
 - [ ] It makes an interesting sound immediately on insert, at default settings.
 - [ ] No knob, at any speed of turning, produces a click or zipper.
