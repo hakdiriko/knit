@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.0 hypnagogic (demo branch, not merged)
+
+A different instrument, written from scratch on its own branch. No delay, no reverb: a space that exists only between your ears.
+
+- **Mono is your dry signal.** Everything dendrite makes lives in the Side (L = M + S, R = M − S). Fold to mono and you get the dry track back, only up to about 1 dB quieter at full depth. Nothing below about 150 Hz goes into the space, so the sub stays centred.
+- **No knobs: a disc around your head.** Drag the point around you to turn the space (orbit), and outward to go deeper (depth: inside, around, envelop, dissolve). Near the rim the smallest moves change the most. Shift drags five times finer; double-click comes home (front, 45%). Orbit and depth are still plain parameters for Push, MIDI and automation.
+- **How the space is made.**
+  - Near: the track's own band, turned in phase between the ears. At the sides, level and time cues agree. In front and behind they disagree and the image splits by frequency, so a few degrees can flip it.
+  - Diffuse: 32 allpasses, one per critical band of the ear. They scramble phase without echoes or a tail, and narrower poles sound farther away.
+  - Attacks skip the diffuse part and stay sharp and anchored; only the body spreads.
+  - Dissolve turns the whole space slowly, so it rises endlessly like a barberpole.
+  - Everything drifts a little on slow, smooth random paths.
+- **The itch.** Drag the strip to set the frame: off, 1, 1.25, 1.5, 1.75, 2, 3, 4 or 8 bars (default 2). When a whole frame sounds like the bars before it, it itches, and three heads play in order like the heads of a Space Echo, at 1, 2 and 3 quarters of the frame:
+  1. **scream**: a ghost voice only two ears can hear, climbing inside your head while the space shrinks toward it.
+  2. **laugh**: the whole image giggles left and right, about five hops a second, slowing down.
+  3. **manipulate**: the body of the sound slides around your head while its attacks stay where they were, so you barely notice the move. Then the attacks catch up, and the new place heals back over about a minute.
+  After an itch there's always a full frame of relief, so on a steady loop it itches every third frame, a little harder each time. The same bar gives the same itch. Everything the heads do vanishes in mono.
+- 5 ms of latency, which Live compensates automatically.
+- The plug-in file is now `dendrite.vst3` (lowercase). Sets saved with earlier dendrite builds still find it, with default settings.
+
 ## 0.3.0 (test: listening to Hakan)
 
 What you heard in 0.2, and what changed:
