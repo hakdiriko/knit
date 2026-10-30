@@ -81,10 +81,6 @@ jobs:
           xvfb-run -a python3 tools/discovery_audit.py "$ARTEFACTS/VST3/dendrite.vst3" --out audit_report.md
           cat audit_report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Wear check
-        if: runner.os == 'Linux'
-        run: python3 tools/wear_check.py
-
       - name: Upload audit report
         if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4

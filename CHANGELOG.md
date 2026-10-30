@@ -1,15 +1,27 @@
 # Changelog
 
-## 0.4.0 (reset: the tape and the room)
+## 0.5.0 (prototype: the dotted dub echo)
 
-You tested 0.3 and found it metallic, crowded with controls, slow to count bars and cheap in its moves. All four came from the engine, so the engine is new.
+You rejected the tape and the room, picked the dotted dub echo on the brainstorm cards, and chose between sketches. This is the first build of it, to play with your own hands.
+
+- **One dotted dub echo, no reverb.** Each side has its own tape loop. A dotted-eighth head reads it on the same side and a quarter-note head on the other, so every repeat branches in two and the echo thickens into its own space. Everything that goes onto the loop passes through the tape once: light saturation, a little of the lows and highs lost, slow wow and flutter, and a touch of drifting diffusion, so each repeat is softer and more smeared than the one before. The tempo comes from Live; when it changes, the heads glide like tape.
+- **It breathes.** The echo ducks under what's playing and blooms in the gaps, leans a few ms late when the part is busy, and swells brighter and louder, then darker and softer, on its own every 5 to 10 seconds.
+- **It fills the silence.** When the music stops, the feedback rises and keeps the last sound alive for up to 4 bars, then lets it go. A ceiling keeps the loop from ever getting louder than what was played into it.
+- **Throws.** dendrite throws on its own, like a dub engineer opening the send for one moment: an accent followed by space (a phrase end, a stab before a gap) goes into the echo, at most once a bar and not every time. Hold the pad in the window, or map the **throw** parameter to a pad on Push or a key, and the send opens fully to whatever is playing.
+- **No knobs.** One **amount** (how much goes into the echo and how loud it comes back: off, a whisper, dub, drowning) and the **throw** pad. Both are plain parameters, so Live can automate them, map them to Push or MIDI, or drive them from an LFO. The real window comes later.
+- Gone: wear, friction and room (0.4), and 0.3's Ecology, Size, Tone, Itch, Mix, Output, Sync and the switches. Sets saved with any earlier version open with amount at its default.
+- No latency.
+
+## 0.4.0 (reset: the tape and the room; never merged)
+
+You tested 0.3 and found it crowded with controls, slow to count bars and cheap in its moves. All three came from the engine, so the engine is new.
 
 - **dendrite is written lowercase**, everywhere, including the name Live shows. Sets saved with earlier versions still open in the same slot (the codes that identify it haven't changed), with the new knobs at their defaults.
 - **Three knobs, nothing else.** wear, friction, room. Ecology, Size, Tone, Itch, Mix, Output, Sync, steady, auto, after N bars, build-up and scratch are gone. Bypass is still there for Live, with no button.
 - **The sound goes through a tape, then into a room.** The tape is in series: there is no dry copy beside a moving copy, so nothing can comb-filter or flange, on drums or anywhere.
 - **wear** replaces the itch, and there are no events any more. The tape is a 4-bar loop cut into 64 sixteenths in 4 bands. Each time a sixteenth plays something that sounds the same as 4 or 8 bars ago, it loses a little oxide in that band. Weak stretches go first, and wear speeds up as it goes, so a loop that never changes slowly disintegrates at fixed places, like a tape loop played to death. The worn spots follow a fine oxide texture, so they are irregular flakes, never a gate on the grid. Anything new heals it: a new hit comes through clean at once, and sixteenths that changed grow back. What wears off falls into the room. The knob says roughly how long it takes: "30% · ~36 bars" (drums wear in about half that, long pads in about 1.5 times). At 0 it never wears. When Live stops, the tape stops and the damage gets out of the way.
 - **friction** is the material: tape saturation with the highs giving first and a touch of even harmonics, 1/f wow and flutter (a few cents at the middle, a dragging tape at the top), the tape's own grain riding the signal, and dust where the sound wore away. clean → warm → worn → rough.
-- **room** is new and built against the metal: 32 delay lines with irregular lengths and an allpass inside each loop, every line drifting slowly on its own, highs dying 3 to 6 times faster than lows. none → wood → hall → afterlife (up to 30 s, dark). Measured on a noise burst, its tail is as dense as Gaussian noise at every setting; 0.3's network reached about a third of that, and pushing Tone and Ecology made its tail strongly periodic, which is what metal sounds like.
+- **room** is new: 32 delay lines with irregular lengths and an allpass inside each loop, every line drifting slowly on its own, highs dying 3 to 6 times faster than lows. none → wood → hall → afterlife (up to 30 s, dark).
 - **The window** shows the tape: 64 slivers of oxide, dark when fresh, pale where worn, with the head moving across.
 - The tape adds 4 ms of latency, reported to Live, which compensates for it.
 

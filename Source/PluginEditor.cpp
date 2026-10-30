@@ -8,15 +8,52 @@ const juce::Colour text (0xffe8e6e3);
 const juce::Colour dim (0xff8a8f98);
 const juce::Colour accent (0xffd9a55b);
 const juce::Colour track (0xff2a2e35);
-const juce::Colour oxide (0xff5a3b26); // fresh tape
-const juce::Colour shed (0xffcfc6b6);  // worn through
 } // namespace
 
-DendriteEditor::DendriteEditor (DendriteProcessor& p)
-    : AudioProcessorEditor (p), processor (p)
+void DendriteEditor::ThrowPad::paint (juce::Graphics& g)
 {
-    lookAndFeel.setColour (juce::Slider::rotarySliderFillColourId, accent);
-    lookAndFeel.setColour (juce::Slider::rotarySliderOutlineColourId, track);
+    const auto area = getLocalBounds().toFloat().reduced (2.0f);
+    const float lit = juce::jlimit (0.0f, 1.0f, held ? 1.0f : glow);
+
+    g.setColour (track.interpolatedWith (accent, 0.15f + 0.6f * lit));
+    g.fillRoundedRectangle (area, 14.0f);
+
+    // the repeats: rings at the dotted rhythm, fading out
+    g.setColour (accent.withAlpha (0.25f + 0.6f * lit));
+    const auto centre = area.getCentre();
+    for (int k = 1; k <= 5; ++k)
+    {
+        const float radius = (float) k * 3.0f / 16.0f * area.getHeight() * 0.9f;
+        g.drawEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre), 1.5f / (float) k + 0.5f);
+    }
+
+    g.setColour (text);
+    g.setFont (juce::FontOptions (18.0f));
+    g.drawText ("hold to throw", area, juce::Justification::centred);
+}
+
+void DendriteEditor::ThrowPad::mouseDown (const juce::MouseEvent&)
+{
+    held = true;
+    parameter.beginChangeGesture();
+    parameter.setValueNotifyingHost (1.0f);
+    repaint();
+}
+
+void DendriteEditor::ThrowPad::mouseUp (const juce::MouseEvent&)
+{
+    held = false;
+    parameter.setValueNotifyingHost (0.0f);
+    parameter.endChangeGesture();
+    repaint();
+}
+
+DendriteEditor::DendriteEditor (DendriteProcessor& p)
+    : AudioProcessorEditor (p), processor (p),
+      pad (*p.parameters.getParameter (ParamIDs::throwIt))
+{
+    lookAndFeel.setColour (juce::Slider::trackColourId, accent);
+    lookAndFeel.setColour (juce::Slider::backgroundColourId, track);
     lookAndFeel.setColour (juce::Slider::thumbColourId, text);
     lookAndFeel.setColour (juce::Slider::textBoxTextColourId, dim);
     lookAndFeel.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
@@ -24,12 +61,16 @@ DendriteEditor::DendriteEditor (DendriteProcessor& p)
     lookAndFeel.setColour (juce::Label::textColourId, text);
     setLookAndFeel (&lookAndFeel);
 
-    setUpKnob (wear, ParamIDs::wear, "wear",
-               "How fast a part that keeps repeating wears the tape. Anything new heals it. At 0 it never wears");
-    setUpKnob (friction, ParamIDs::friction, "friction",
-               "The material: saturation, wow and flutter, and the dust left where the sound wore away");
-    setUpKnob (room, ParamIDs::room, "room",
-               "The space the sound, and what wears off it, falls into: wood, hall, then a long dark afterlife");
+    addAndMakeVisible (pad);
+
+    amount.setSliderStyle (juce::Slider::LinearHorizontal);
+    amount.setTextBoxStyle (juce::Slider::TextBoxRight, false, 140, 20);
+    addAndMakeVisible (amount);
+    amountLabel.setText ("amount", juce::dontSendNotification);
+    amountLabel.setFont (juce::FontOptions (15.0f));
+    addAndMakeVisible (amountLabel);
+    // The attachment also sets double-click-to-default and the value text.
+    amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.parameters, ParamIDs::amount, amount);
 
     setSize (600, 340);
     startTimerHz (30);
@@ -40,29 +81,14 @@ DendriteEditor::~DendriteEditor()
     setLookAndFeel (nullptr);
 }
 
-void DendriteEditor::setUpKnob (Knob& knob, const juce::String& paramID, const juce::String& name, const juce::String& hint)
-{
-    knob.slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    knob.slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 160, 20);
-    knob.slider.setTooltip (hint);
-    addAndMakeVisible (knob.slider);
-
-    knob.label.setText (name, juce::dontSendNotification);
-    knob.label.setJustificationType (juce::Justification::centred);
-    knob.label.setFont (juce::FontOptions (17.0f));
-    addAndMakeVisible (knob.label);
-
-    // The attachment also sets double-click-to-default and the value text.
-    knob.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.parameters, paramID, knob.slider);
-}
-
 void DendriteEditor::timerCallback()
 {
-    for (size_t c = 0; c < shownWear.size(); ++c)
-        shownWear[c] += 0.3f * (processor.wearForUi[c].load (std::memory_order_relaxed) - shownWear[c]);
-    head = processor.headForUi.load (std::memory_order_relaxed);
-    playing = processor.playingForUi.load (std::memory_order_relaxed);
-    repaint (tapeArea.expanded (4));
+    const float glow = processor.throwGlowForUi.load (std::memory_order_relaxed);
+    if (std::abs (glow - pad.glow) > 0.01f)
+    {
+        pad.glow = glow;
+        pad.repaint();
+    }
 }
 
 void DendriteEditor::paint (juce::Graphics& g)
@@ -75,41 +101,16 @@ void DendriteEditor::paint (juce::Graphics& g)
     g.drawText ("dendrite", header, juce::Justification::centredLeft);
     g.setColour (dim);
     g.setFont (juce::FontOptions (13.0f));
-    g.drawText ("v" JucePlugin_VersionString, header, juce::Justification::centredRight);
-
-    // The tape: 4 bars, 64 slivers. Bar lines are a hair darker so the loop reads.
-    const auto area = tapeArea.toFloat();
-    const float w = area.getWidth() / (float) shownWear.size();
-    for (size_t c = 0; c < shownWear.size(); ++c)
-    {
-        const float worn = juce::jlimit (0.0f, 1.0f, shownWear[c] * 1.6f);
-        auto sliver = juce::Rectangle<float> (area.getX() + w * (float) c, area.getY(), w, area.getHeight());
-        g.setColour (oxide.interpolatedWith (shed, std::sqrt (worn)));
-        g.fillRect (sliver.reduced (c % 16 == 0 ? 1.0f : 0.25f, 0.0f));
-    }
-
-    const float x = area.getX() + area.getWidth() * head / (float) shownWear.size();
-    g.setColour (playing ? accent : dim);
-    g.fillRect (juce::Rectangle<float> (x - 1.0f, area.getY() - 4.0f, 2.0f, area.getHeight() + 8.0f));
-
-    g.setColour (dim);
-    g.setFont (juce::FontOptions (12.0f));
-    g.drawText (playing ? "the tape" : "the tape  (stopped)", tapeArea.translated (0, tapeArea.getHeight() + 4).withHeight (16),
-                juce::Justification::centredLeft);
+    g.drawText ("v" JucePlugin_VersionString " prototype", header, juce::Justification::centredRight);
 }
 
 void DendriteEditor::resized()
 {
     auto area = getLocalBounds().reduced (24, 14);
-    area.removeFromTop (44);
-    tapeArea = area.removeFromTop (54);
-    area.removeFromTop (30);
-
-    const int column = area.getWidth() / 3;
-    for (auto* knob : { &wear, &friction, &room })
-    {
-        auto cell = area.removeFromLeft (column).reduced (10, 0);
-        knob->label.setBounds (cell.removeFromTop (24));
-        knob->slider.setBounds (cell);
-    }
+    area.removeFromTop (48);
+    auto strip = area.removeFromBottom (32);
+    area.removeFromBottom (14);
+    pad.setBounds (area);
+    amountLabel.setBounds (strip.removeFromLeft (70));
+    amount.setBounds (strip);
 }

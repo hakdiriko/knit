@@ -34,9 +34,9 @@ JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "wear")  # params not expected to change character
-# "wear" acts only while the host's transport plays, after bars of repetition. pedalboard reports a
-# stopped transport, so here it is a no-op; tools/wear_check.py (or a render on the tape's own DSP) covers it.
+SKIP_PARAM_WORDS = ("bypass", "output", "trim", "throw")  # params not expected to change character
+# "throw" is a momentary pad (hold it and the send opens fully, like amount at 100%): a two-state
+# switch, so a sweep would only report its one step as a jump.
 
 
 # ---------------------------------------------------------------- test signals

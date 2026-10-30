@@ -3,13 +3,14 @@
 A zero-setup audio effect (VST3, plus AU on macOS) built with JUCE. Put it on any track and turn anything.
 The repository is called `knit`; the plug-in is called **dendrite**, lowercase (it was called viber until 0.2.0, and sets saved with viber still open).
 
-**Status: 0.4 (reset: the tape and the room).** The sound passes through a tape, then into a room. A part that keeps repeating slowly wears the tape at fixed places, like a tape loop played to death; anything new heals it. What wears off falls into the room. Three knobs:
+**Status: 0.5 (prototype: the dotted dub echo).** A dotted dub echo on its own tape loop: every repeat branches, the space grows out of the repeats (no reverb), it breathes with the music, fills the silence, and throws on its own like a dub engineer. No knobs:
 
 | Control | What you hear |
 |---|---|
-| wear | how fast a repeating part wears the tape; the value says about how many bars it takes (0 = never) |
-| friction | the material: clean → warm → worn → rough (saturation, wow and flutter, grain, dust) |
-| room | the space the sound and its worn fragments fall into: none → wood → hall → afterlife |
+| amount | how much goes into the echo and how loud it comes back: off → a whisper → dub → drowning |
+| throw | hold it (the pad in the window, or a Push pad or key mapped to it) and the echo takes whatever is playing |
+
+Both are plain parameters: automate them, map them to Push or MIDI, or drive them from an LFO.
 
 Built for and tested on:
 - Windows 11 Pro 64-bit (build 26200)

@@ -54,19 +54,31 @@ Two Fular ideas are worth keeping: **tape-style slowdown** (pitch and speed chan
 3. **It lives.** Slow internal motion makes the output evolve even when nobody touches it, so accidents happen while you're just listening.
 4. **Safe at the edges.** Feedback may self-oscillate, but saturation inside every loop and a limiter at the output make it impossible to wreck a mix or a pair of speakers.
 5. **Input-agnostic.** Drums, voice, a pad, a field recording, or a full mix must all produce something worth keeping. Test with all of them.
-6. **Few controls, deep behaviour.** Since 0.4.0, three knobs. Depth comes from how parameters interact, not from how many there are. An A/B is a temporary build or an audio sketch, never a permanent switch.
+6. **No knobs, if it can be done.** Hakan's call (2026-10-29): minimalism means a more creative interface than a row of knobs. Live still gets parameters to automate, but the window shows something you touch or watch, never a control panel. An A/B is a temporary build or an audio sketch, never a permanent switch. Until the skin phase, the test builds may show plain controls.
 7. **Sound first on insert.** The default state, at the default Mix, already does something beautiful.
-8. **Organic, never metallic.** Hakan's own motto for his sonic art: micro-modulation, fluctuation, warmth, randomness. Few sharp, evenly spaced resonances are what metal sounds like; avoid them by design and measure for them.
+8. **Organic.** Hakan's own motto for his sonic art: micro-modulation, fluctuation, warmth, randomness.
 
 ---
 
-## Core concept since 0.4.0: the tape and the room
+## Direction since 2026-10-29: the dotted dub echo
 
-Hakan tested 0.3 and found it metallic, crowded and cheap in its moves, so 0.4.0 started the sound over (his call, 2026-10-28):
+Hakan listened to 0.4.0 (the tape and the room) and rejected it: wear wasn't the answer. 0.4 was never merged (PR #6). The new direction, in his words:
 
-- **The tape** (in series, no dry copy beside it): **wear** (a 4-bar tape loop of 64 sixteenths × 4 bands; a part that sounds the same as 4 or 8 bars ago wears its place on the tape, new material heals it) and **friction** (the material: saturation, wow and flutter, grain, dust).
-- **The room**: a dense, drifting, absorbent space; what wears off the tape falls into it.
-- Three knobs: wear, friction, room. It fits Corpus (Bahadırhan Koçer's platform, where dendrite will be published), whose tapes wear and where "sound gets back its mass, its friction and its room".
+- Start again from **0.3** and make it minimal.
+- **No knobs**, if possible, and a more creative interface (principle 6). It belongs to the skin phase, but the engine is built for it from now on.
+- The magic he believes in is **dub echo, dotted**. It must not be a plain delay followed by a reverb: the dotted dub echo has to be done in an original way.
+- The itch is an open question: it's original, but it never worked out. Proposal: give it a new job, listening for the moments a dub engineer would throw into the echo.
+- Brainstorm before building, by flashcards ([dendrite dub brainstorm](https://claude.ai/artifact/6fj6HHUUSgZYr8aeHrhrNC)) and audio sketches. Claude advises and pushes back throughout, not only when asked.
+
+Ideas on the cards: a branching echo (each repeat splits into a dotted and a straight branch, so the echo grows like a dendrite and thickens into its own space), repeats that diffuse more on every pass, an echo that breathes with the music, an echo that fills the silence, rare recollections from further back.
+
+His picks: the branching echo, diffusion that grows each pass, breathing, filling the silence (recollections: no). The dotted eighth is the trunk. The itch becomes the throw (to be judged when he plays it). From 0.3, keep the Echo with its tape glide, Memory and Sync's tape slowdown. Analog warmth, with the Roland RE-201 as a reference, but light. Interface: no knobs (one at most), controllable from Push or a MIDI keyboard, automatable, drivable by an external LFO; Krotos Studio's control surface is a reference. A sidechain that drives the breathing is for a later phase.
+
+**0.5.0** is the first build of it (see the changelog and DSP_PLAYBOOK §10). Memory and the tape slowdown are not in it yet. From here on: builds first, audio sketches only for quick A/B questions.
+
+### Rejected: the tape and the room (0.4.0, 2026-10-28)
+
+Three knobs (wear, friction, room): a repeating part wore its place on a 4-bar tape and new material healed it; what wore off fell into a 32-line room. The room's measurements (no periodicity, echo density equal to noise) are still a useful bar for anything spacious.
 
 The rest of this section is the V1 concept (0.1–0.3), kept for history.
 

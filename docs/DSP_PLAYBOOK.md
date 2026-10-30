@@ -168,15 +168,17 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 
 ---
 
-## 10. The tape and the room (0.4.0)
+## 10. The dotted dub echo (0.5.0)
 
-**Why 0.3 sounded metallic.** Metal rings because its modes are few, sharp and evenly spaced. The 0.3 network was four loops through a fixed matrix plus a 2–15 ms comb at up to 1.12 loop gain: exactly that. Measured on a noise burst, its tail had about a third of the echo density of Gaussian noise, and at high Tone/Ecology its cepstrum showed a periodicity peak 6.6× the noise floor.
+**Structure.** One tape loop per side. A dotted-eighth head reads the same side, a quarter-note head reads the other side, and both feed back, so every repeat branches (3, 4, 6, 7, 8 sixteenths and on) and the echo thickens into a wash without a reverb. The input and the feedback both pass through one tape pass before they're written, so even the first repeat is a tape repeat.
 
-**The room** pushes the other way: 32 lines with irregular lengths, Hadamard mixing, an allpass inside every loop (echo density explodes within a few passes), a slow 1/f drift per line (no mode sits still long enough to ring), and a one-pole shelf per line so highs decay 3–6× faster than lows. Measure any change to it with normalised echo density (Abel & Huang) and the cepstrum of the tail, against noise.
+**Never jitter a read position.** Wow, flutter and diffuser drift come from Ornstein-Uhlenbeck wanders driven by noise; each is smoothed by two poles well above its fastest component. Raw random steps on a delay read are phase noise and come out as hiss on every repeat.
 
-**Nothing in parallel with a moving copy.** Dry plus a time-modulated copy is a sweeping comb (flanging). The tape is in series, so its wow is only pitch drift.
+**Bounded loop.** The two heads add in phase on every multiple of 1/sixteenth Hz, so the coherent loop gain is gA + gB > 1 even when gA² + gB² < 1. The tape's losses and decorrelated wow keep normal settings decaying; when the fill raises the gains, a ceiling (half the recent input peak) eases the feedback, and tanh bounds the rest.
 
-**Wear** is state, not an event: per-sixteenth, per-band damage on a 4-bar tape, grown by repetition (vs 4 and 8 bars ago), healed by novelty, shown through a fixed 1/f oxide texture so the worn spots are irregular. Cells are counted in play order, so Live's loop brace keeps wearing the same tape. It only moves while the transport plays, so check it with `tools/wear_check.py`, not the audit.
+**Throws after the fact.** A throw is only recognised once the space after the accent has lasted an eighth, so the event is copied from an input history into the loop's past (or, if the dotted head has passed it, a beat later), through its own tape pass. Copy a little per sample, not all at once.
+
+The 0.4 tape and room live in git history (PR #6, never merged).
 
 ## 11. Quality checklist ("doesn't feel cheap")
 

@@ -1,21 +1,19 @@
 #pragma once
 
+#include "dsp/DubEcho.h"
 #include "dsp/OutputChain.h"
-#include "dsp/Room.h"
-#include "dsp/Tape.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 namespace ParamIDs
 {
 // Never rename these: hosts store automation and saved state by ID.
-inline constexpr auto wear     = "wear";
-inline constexpr auto friction = "friction";
-inline constexpr auto room     = "room";
-inline constexpr auto bypass   = "bypass";
+inline constexpr auto amount  = "amount";
+inline constexpr auto throwIt = "throw";
+inline constexpr auto bypass  = "bypass";
 } // namespace ParamIDs
 
 // Signal flow:
-//   input -> tape (wear, friction) -> + room (fed by the tape and by what wore away)
+//   input -> + dotted dub echo (its own tape loop, branching, breathing, throws)
 //         -> safety limiter -> NaN guard -> bypass crossfade -> output
 class DendriteProcessor final : public juce::AudioProcessor
 {
@@ -39,7 +37,7 @@ public:
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 30.0; }
+    double getTailLengthSeconds() const override { return 12.0; }
 
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
@@ -54,36 +52,26 @@ public:
 
     juce::AudioProcessorValueTreeState parameters;
 
-    // For the window: how worn each 16th of the 4-bar tape is, where the head is, and
-    // whether the tape is moving.
-    std::array<std::atomic<float>, dendrite::dsp::Tape::cellsPerTape> wearForUi {};
-    std::atomic<float> headForUi { 0.0f };
-    std::atomic<bool> playingForUi { false };
+    // For the window: glows when the echo takes a throw.
+    std::atomic<float> throwGlowForUi { 0.0f };
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void resetDsp();
-    void setRoom (float amount);
 
     static constexpr int subBlock = 64;
 
-    std::atomic<float>* wearParam = nullptr;
-    std::atomic<float>* frictionParam = nullptr;
-    std::atomic<float>* roomParam = nullptr;
+    std::atomic<float>* amountParam = nullptr;
+    juce::AudioParameterBool* throwParam = nullptr;
     juce::AudioParameterBool* bypassParam = nullptr;
 
-    dendrite::dsp::Tape tape;
-    dendrite::dsp::Room room;
+    dendrite::dsp::DubEcho echo;
     dendrite::dsp::SafetyLimiter limiter;
-    std::array<dendrite::dsp::DelayLine, 2> dryDelay; // keeps bypass in time with the tape's latency
 
-    juce::SmoothedValue<float> roomReturnSm, directSm, bypassSm;
-    float roomAmount = 0.0f, frictionAmount = 0.0f, setRoomAmount = -1.0f;
-    float knobCoef = 0.1f;
-    double internalPpq = 0.0;
+    juce::SmoothedValue<float> bypassSm;
     float sampleRate = 48000.0f;
 
-    std::array<float, subBlock> dryL {}, dryR {}, lostL {}, lostR {};
+    std::array<float, subBlock> dryL {}, dryR {}, wetL {}, wetR {};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteProcessor)
 };
