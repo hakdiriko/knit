@@ -60,7 +60,7 @@ The boundaries between regimes are where discovery happens. Place them at differ
 
 ---
 
-## 3. The network: bounded feedback
+## 3. The network: bounded feedback (0.1–0.3; the principles still apply to the room)
 
 **Mechanism:** in a feedback loop, energy grows when loop gain is above 1 and decays when it is below 1. Real-world energy is bounded by the physical medium. We reproduce that with a saturator inside every loop, so the network can sit above unity gain without blowing up. It sustains at the level where the saturator's average gain falls back to exactly 1. That is a self-oscillating drone that still reacts to the input.
 
@@ -103,7 +103,7 @@ At `c = 0` the nodes stay apart. At `c = 1` every node hears every other one, wh
 
 ---
 
-## 5. Memory and tape slowdown
+## 5. Memory and tape slowdown (planned for V1, not built)
 
 **Mechanism:** a real-time plug-in can't play faster than the present, but it *can* fall behind it. A buffer that is always recording turns "slow down" into "read the past at less than 1× speed". The lag between write and read grows as long as the slowdown lasts, so the slowdown is limited only by the buffer's length.
 
@@ -168,7 +168,19 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 
 ---
 
-## 10. Quality checklist ("doesn't feel cheap")
+## 10. The dotted dub echo (0.5.0)
+
+**Structure.** One tape loop per side. A dotted-eighth head reads the same side, a quarter-note head reads the other side, and both feed back, so every repeat branches (3, 4, 6, 7, 8 sixteenths and on) and the echo thickens into a wash without a reverb. The input and the feedback both pass through one tape pass before they're written, so even the first repeat is a tape repeat.
+
+**Never jitter a read position.** Wow, flutter and diffuser drift come from Ornstein-Uhlenbeck wanders driven by noise; each is smoothed by two poles well above its fastest component. Raw random steps on a delay read are phase noise and come out as hiss on every repeat.
+
+**Bounded loop.** The two heads add in phase on every multiple of 1/sixteenth Hz, so the coherent loop gain is gA + gB > 1 even when gA² + gB² < 1. The tape's losses and decorrelated wow keep normal settings decaying; when the fill raises the gains, a ceiling (half the recent input peak) eases the feedback, and tanh bounds the rest.
+
+**Throws after the fact.** A throw is only recognised once the space after the accent has lasted an eighth, so the event is copied from an input history into the loop's past (or, if the dotted head has passed it, a beat later), through its own tape pass. Copy a little per sample, not all at once.
+
+The 0.4 tape and room live in git history (PR #6, never merged).
+
+## 11. Quality checklist ("doesn't feel cheap")
 
 - [ ] It makes an interesting sound immediately on insert, at default settings.
 - [ ] No knob, at any speed of turning, produces a click or zipper.

@@ -8,7 +8,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(dendrite VERSION 0.3.0 LANGUAGES C CXX)
+project(dendrite VERSION 0.5.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -25,14 +25,14 @@ if(APPLE)
     list(APPEND DENDRITE_FORMATS AU)
 endif()
 
-# Renamed from viber in 0.2.0. The codes (and the bundle id) never change: hosts find
-# the plug-in by them, so saved Live sets keep the device.
+# Renamed from viber in 0.2.0, and written lowercase since 0.4.0. The codes (and the
+# bundle id) never change: hosts find the plug-in by them, so saved Live sets keep it.
 juce_add_plugin(dendrite
     COMPANY_NAME "hakdiriko"
     BUNDLE_ID "com.hakdiriko.viber"
     PLUGIN_MANUFACTURER_CODE Hakd
     PLUGIN_CODE Vibr
-    PRODUCT_NAME "Dendrite"
+    PRODUCT_NAME "dendrite"
     FORMATS ${DENDRITE_FORMATS}
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
@@ -46,8 +46,7 @@ juce_add_plugin(dendrite
 target_sources(dendrite PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
-    Source/dsp/Network.cpp
-    Source/dsp/Itch.cpp)
+    Source/dsp/DubEcho.cpp)
 
 target_compile_definitions(dendrite PUBLIC
     JUCE_WEB_BROWSER=0

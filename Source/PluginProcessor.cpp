@@ -3,31 +3,16 @@
 
 namespace
 {
-juce::String percent (float v, int) { return juce::String (juce::roundToInt (v * 100.0f)) + "%"; }
-
-juce::String ecologyText (float v, int)
+juce::String amountText (float v, int)
 {
-    const char* regime = v < 0.3f ? "colour" : v < 0.6f ? "space" : v < 0.8f ? "ringing" : "life";
-    return percent (v, 0) + juce::String::fromUTF8 (" \xc2\xb7 ") + regime;
-}
-
-juce::String itchText (float v, int)
-{
-    const char* regime = v < 0.02f ? "still" : v < 0.35f ? "breathing" : v < 0.7f ? "restless" : "feverish";
-    return percent (v, 0) + juce::String::fromUTF8 (" \xc2\xb7 ") + regime;
-}
-
-juce::String decibels (float v, int)
-{
-    return (v > 0.0f ? "+" : "") + juce::String (v, 1) + " dB";
+    const auto percent = juce::String (juce::roundToInt (v * 100.0f)) + "%";
+    const char* word = v < 0.005f ? "off" : v < 0.3f ? "a whisper" : v < 0.7f ? "dub" : "drowning";
+    return percent + juce::String::fromUTF8 (" \xc2\xb7 ") + word;
 }
 
 float fromPercent (const juce::String& text) { return text.retainCharacters ("0123456789.-").getFloatValue() / 100.0f; }
 
-// The choices of the Bars parameter: how many bars of repetition before a move.
-constexpr std::array<int, 5> patienceBars { 4, 8, 16, 32, 64 };
-
-int patienceFrom (float index) { return patienceBars[(size_t) juce::jlimit (0, 4, juce::roundToInt (index))]; }
+constexpr uint32_t seed = 1;
 } // namespace
 
 DendriteProcessor::DendriteProcessor()
@@ -37,75 +22,33 @@ DendriteProcessor::DendriteProcessor()
       // The state's type stays "viber": sets saved before the rename still recall.
       parameters (*this, nullptr, "viber", createParameterLayout())
 {
-    ecologyParam = parameters.getRawParameterValue (ParamIDs::ecology);
-    sizeParam = parameters.getRawParameterValue (ParamIDs::size);
-    toneParam = parameters.getRawParameterValue (ParamIDs::tone);
-    mixParam = parameters.getRawParameterValue (ParamIDs::mix);
-    outputParam = parameters.getRawParameterValue (ParamIDs::output);
-    syncParam = parameters.getRawParameterValue (ParamIDs::sync);
-    itchParam = parameters.getRawParameterValue (ParamIDs::itch);
-    scratchParam = parameters.getRawParameterValue (ParamIDs::scratch);
-    jumpParam = parameters.getRawParameterValue (ParamIDs::jump);
-    autoParam = parameters.getRawParameterValue (ParamIDs::autoMoves);
-    barsParam = parameters.getRawParameterValue (ParamIDs::bars);
-    buildParam = parameters.getRawParameterValue (ParamIDs::build);
+    amountParam = parameters.getRawParameterValue (ParamIDs::amount);
+    throwParam = dynamic_cast<juce::AudioParameterBool*> (parameters.getParameter (ParamIDs::throwIt));
     bypassParam = dynamic_cast<juce::AudioParameterBool*> (parameters.getParameter (ParamIDs::bypass));
-    jassert (bypassParam != nullptr);
+    jassert (throwParam != nullptr && bypassParam != nullptr);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout DendriteProcessor::createParameterLayout()
 {
-    using Float = juce::AudioParameterFloat;
-    using Attributes = juce::AudioParameterFloatAttributes;
-    const juce::NormalisableRange<float> unit (0.0f, 1.0f);
-
-    auto macro = [&] (const char* id, const char* name, float defaultValue, auto toText)
-    {
-        return std::make_unique<Float> (juce::ParameterID { id, 1 }, name, unit, defaultValue,
-                                        Attributes().withStringFromValueFunction (toText)
-                                                    .withValueFromStringFunction (fromPercent));
-    };
-
+    // 0.5.0 replaced every earlier control, so these carry version hint 6. On the window
+    // they are a pad and a strip, not knobs; in Live they map to Push, MIDI or an LFO.
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
-    layout.add (macro (ParamIDs::ecology, "Ecology", 0.42f, ecologyText),
-                macro (ParamIDs::size, "Size", 0.5f, percent),
-                macro (ParamIDs::tone, "Tone", 0.55f, percent),
-                macro (ParamIDs::mix, "Mix", 0.4f, percent),
-                std::make_unique<Float> (juce::ParameterID { ParamIDs::output, 1 }, "Output",
-                                         juce::NormalisableRange<float> (-12.0f, 12.0f, 0.1f), 0.0f,
-                                         Attributes().withStringFromValueFunction (decibels)
-                                                     .withLabel ("dB")),
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::bypass, 1 }, "Bypass", false),
-                // Added in 0.1.1, so version hint 2 (AU keeps parameter order by it).
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::sync, 2 }, "Sync", false),
-                // Added in 0.2.0, version hint 3.
-                std::make_unique<Float> (juce::ParameterID { ParamIDs::itch, 3 }, "Itch", unit, 0.45f,
-                                         Attributes().withStringFromValueFunction (itchText)
-                                                     .withValueFromStringFunction (fromPercent)),
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::scratch, 3 }, "Scratch", false),
-                // Was "Sync jump" in 0.2.0; since 0.3.0 it holds every delay time still.
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::jump, 3 }, "Steady", false),
-                // Added in 0.3.0, version hint 4. Auto is off by default: Dendrite never
-                // breaks a loop on its own unless asked to.
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::autoMoves, 4 }, "Auto moves", false),
-                std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { ParamIDs::bars, 4 }, "After",
-                                                              juce::StringArray { "4 bars", "8 bars", "16 bars", "32 bars", "64 bars" }, 2),
-                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::build, 4 }, "Build-up", true));
+    layout.add (std::make_unique<juce::AudioParameterFloat> (juce::ParameterID { ParamIDs::amount, 6 }, "amount",
+                                                             juce::NormalisableRange<float> (0.0f, 1.0f), 0.5f,
+                                                             juce::AudioParameterFloatAttributes()
+                                                                 .withStringFromValueFunction (amountText)
+                                                                 .withValueFromStringFunction (fromPercent)),
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::throwIt, 6 }, "throw", false),
+                std::make_unique<juce::AudioParameterBool> (juce::ParameterID { ParamIDs::bypass, 1 }, "bypass", false));
     return layout;
 }
 
-void DendriteProcessor::prepareToPlay (double sampleRate, int)
+void DendriteProcessor::prepareToPlay (double newSampleRate, int)
 {
-    const auto sr = (float) sampleRate;
-
-    network.prepare (sampleRate);
-    autoGain.prepare (sr);
-    limiter.prepare (sr);
-
-    mixSm.reset (sampleRate, 0.03);
-    trimSm.reset (sampleRate, 0.03);
-    bypassSm.reset (sampleRate, 0.03);
-
+    sampleRate = (float) newSampleRate;
+    echo.prepare (sampleRate, seed);
+    limiter.prepare (sampleRate);
+    bypassSm.reset (newSampleRate, 0.03);
     setLatencySamples (0);
     resetDsp();
 }
@@ -115,30 +58,12 @@ void DendriteProcessor::reset()
     resetDsp();
 }
 
-double DendriteProcessor::hostBpm() const
-{
-    // Real-time safe: getPosition() only copies the host's transport state.
-    if (auto* head = getPlayHead())
-        if (const auto position = head->getPosition())
-            if (const auto bpm = position->getBpm())
-                return *bpm;
-
-    return 0.0;
-}
-
 void DendriteProcessor::resetDsp()
 {
-    network.setSync (syncParam->load() >= 0.5f, hostBpm());
-    network.setSteady (jumpParam->load() >= 0.5f);
-    network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
-    network.setItch (itchParam->load(), autoParam->load() >= 0.5f, patienceFrom (barsParam->load()), buildParam->load() >= 0.5f, false);
-    network.reset();
-    lastScratch = scratchParam->load() >= 0.5f;
-    lastKnobs = { ecologyParam->load(), sizeParam->load(), toneParam->load(), mixParam->load(), itchParam->load() };
-    autoGain.reset();
+    echo.setAmount (amountParam->load());
+    echo.setHeldThrow (false);
+    echo.reset();
     limiter.reset();
-    mixSm.setCurrentAndTargetValue (mixParam->load());
-    trimSm.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
     bypassSm.setCurrentAndTargetValue (bypassParam->get() ? 1.0f : 0.0f);
 }
 
@@ -165,47 +90,16 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     if (numIn == 0 || numSamples == 0)
         return;
 
-    // Transport: tempo for Sync, song position and play state for the itch's phrases.
-    dendrite::dsp::Itch::Transport transport;
+    // The echo runs on the song's tempo; without one (an offline renderer, a validator) at 120 BPM.
+    double bpm = 120.0;
     if (auto* head = getPlayHead())
         if (const auto position = head->getPosition())
-        {
-            transport.bpm = position->getBpm().orFallback (0.0);
-            transport.ppq = position->getPpqPosition().orFallback (0.0);
-            transport.playing = position->getIsPlaying();
-            if (const auto sig = position->getTimeSignature())
-                if (sig->numerator > 0 && sig->denominator > 0)
-                    transport.barQuarters = 4.0 * sig->numerator / sig->denominator;
-        }
-    const double bpm = transport.bpm;
+            if (const auto hostBpm = position->getBpm())
+                if (*hostBpm > 0.0)
+                    bpm = *hostBpm;
 
-    // Moving any knob is novelty: it drains the itch.
-    const std::array<float, 5> knobs { ecologyParam->load(), sizeParam->load(), toneParam->load(), mixParam->load(), itchParam->load() };
-    bool moving = false;
-    for (size_t k = 0; k < knobs.size(); ++k)
-        moving = moving || std::abs (knobs[k] - lastKnobs[k]) > 1.0e-4f;
-    lastKnobs = knobs;
-
-    const bool scratch = scratchParam->load() >= 0.5f;
-    if (scratch != lastScratch)
-        network.triggerScratch();
-    lastScratch = scratch;
-
-    if (scarsPending.exchange (false, std::memory_order_acquire))
-    {
-        std::array<float, 6> loaded {};
-        for (size_t i = 0; i < loaded.size(); ++i)
-            loaded[i] = scarsLoaded[i].load (std::memory_order_relaxed);
-        network.getItch().setScars (loaded);
-    }
-
-    network.setSync (syncParam->load() >= 0.5f, bpm);
-    network.setSteady (jumpParam->load() >= 0.5f);
-    network.setMacros (ecologyParam->load(), sizeParam->load(), toneParam->load());
-    network.setItch (itchParam->load(), autoParam->load() >= 0.5f, patienceFrom (barsParam->load()), buildParam->load() >= 0.5f, moving);
-    network.setTransport (transport);
-    mixSm.setTargetValue (mixParam->load());
-    trimSm.setTargetValue (juce::Decibels::decibelsToGain (outputParam->load()));
+    echo.setAmount (amountParam->load());
+    echo.setHeldThrow (throwParam->get());
     bypassSm.setTargetValue (bypassParam->get() ? 1.0f : 0.0f);
 
     float* left = buffer.getWritePointer (0);
@@ -217,27 +111,21 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
 
         for (int i = 0; i < n; ++i)
         {
-            dryL[(size_t) i] = left[start + i];
-            dryR[(size_t) i] = right != nullptr ? right[start + i] : dryL[(size_t) i];
+            const auto s = (size_t) i;
+            dryL[s] = left[start + i];
+            dryR[s] = right != nullptr ? right[start + i] : dryL[s];
         }
 
-        network.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n);
-        autoGain.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n);
+        echo.process (dryL.data(), dryR.data(), wetL.data(), wetR.data(), n, bpm);
 
         for (int i = 0; i < n; ++i)
         {
-            const size_t s = (size_t) i;
-
-            // Equal-power crossfade: perceived loudness stays level across the Mix travel.
-            const float mix = mixSm.getNextValue();
-            const float m = mix * 0.5f * dendrite::dsp::pi;
-            const float dryGain = std::cos (m), wetGain = std::sin (m);
-            const float trim = trimSm.getNextValue();
-
-            float l = (dryGain * dryL[s] + wetGain * wetL[s]) * trim;
-            float r = (dryGain * dryR[s] + wetGain * wetR[s]) * trim;
+            const auto s = (size_t) i;
+            float l = dryL[s] + wetL[s];
+            float r = dryR[s] + wetR[s];
             limiter.process (l, r);
 
+            // bypass crossfades to the input
             const float b = bypassSm.getNextValue();
             l += b * (dryL[s] - l);
             r += b * (dryR[s] - r);
@@ -254,19 +142,10 @@ void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
         }
     }
 
-    echoNoteForUi.store (network.getEchoNote(), std::memory_order_relaxed);
-    hostHasTempo.store (bpm > 0.0, std::memory_order_relaxed);
-
-    const auto& itch = network.getItch();
-    barsHeardForUi.store (itch.getBarsHeard(), std::memory_order_relaxed);
-    moveForUi.store (itch.getActiveMove(), std::memory_order_relaxed);
-    scratchCountForUi.store (itch.getScratchCount(), std::memory_order_relaxed);
-    const auto scars = itch.getScars();
-    for (size_t i = 0; i < scars.size(); ++i)
-        scarsSaved[i].store (scars[i], std::memory_order_relaxed);
+    throwGlowForUi.store (echo.getThrowGlow(), std::memory_order_relaxed);
 
     // NaN/Inf guard: never hand a non-finite sample to the host. Silence this block
-    // and start the network from scratch.
+    // and start again from scratch.
     for (int ch = 0; ch < numIn; ++ch)
     {
         const float* data = buffer.getReadPointer (ch);
@@ -286,48 +165,19 @@ juce::AudioProcessorEditor* DendriteProcessor::createEditor()
     return new DendriteEditor (*this);
 }
 
-void DendriteProcessor::pressScratch()
-{
-    if (auto* p = parameters.getParameter (ParamIDs::scratch))
-    {
-        p->beginChangeGesture();
-        p->setValueNotifyingHost (p->getValue() < 0.5f ? 1.0f : 0.0f);
-        p->endChangeGesture();
-    }
-}
-
 void DendriteProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    auto state = parameters.copyState();
-
-    // The scars travel with the set, so a reopened set is the same creature.
-    juce::StringArray scars;
-    for (auto& v : scarsSaved)
-        scars.add (juce::String (v.load (std::memory_order_relaxed), 5));
-    state.setProperty ("scars", scars.joinIntoString (" "), nullptr);
-
-    if (auto xml = state.createXml())
+    if (auto xml = parameters.copyState().createXml())
         copyXmlToBinary (*xml, destData);
 }
 
 void DendriteProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    // Sets from 0.4.0 and before load too: their old knobs are simply ignored, and
+    // amount starts at its default.
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (parameters.state.getType()))
-        {
-            auto state = juce::ValueTree::fromXml (*xml);
-
-            const auto scars = juce::StringArray::fromTokens (state.getProperty ("scars").toString(), " ", "");
-            for (size_t i = 0; i < scarsLoaded.size(); ++i)
-            {
-                const float v = (int) i < scars.size() ? scars[(int) i].getFloatValue() : 0.0f;
-                scarsLoaded[i].store (v, std::memory_order_relaxed);
-                scarsSaved[i].store (v, std::memory_order_relaxed);
-            }
-            scarsPending.store (true, std::memory_order_release);
-
-            parameters.replaceState (state);
-        }
+            parameters.replaceState (juce::ValueTree::fromXml (*xml));
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

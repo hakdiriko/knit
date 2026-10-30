@@ -34,10 +34,9 @@ JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch", "auto", "after", "build")  # params not expected to change character
-# "sync" (and "sync_jump") need a host tempo, and pedalboard has no play head, so they are no-ops here.
-# "scratch" is a trigger: only a flip during playback scratches, and every render here starts from reset.
-# "auto_moves", "after" and "build_up" act after 4 to 64 bars of repetition, far longer than a render here.
+SKIP_PARAM_WORDS = ("bypass", "output", "trim", "throw")  # params not expected to change character
+# "throw" is a momentary pad (hold it and the send opens fully, like amount at 100%): a two-state
+# switch, so a sweep would only report its one step as a jump.
 
 
 # ---------------------------------------------------------------- test signals

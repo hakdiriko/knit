@@ -61,24 +61,24 @@ jobs:
       - name: pluginval (VST3)
         run: |
           cmd=("$PLUGINVAL" --strictness-level "$PLUGINVAL_STRICTNESS" --validate-in-process
-               --timeout-ms 600000 --validate "$ARTEFACTS/VST3/Dendrite.vst3")
+               --timeout-ms 600000 --validate "$ARTEFACTS/VST3/dendrite.vst3")
           if [ "${{ runner.os }}" = "Linux" ]; then xvfb-run -a "${cmd[@]}"; else "${cmd[@]}"; fi
 
       - name: auval + pluginval (AU)
         if: runner.os == 'macOS'
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R "$ARTEFACTS/AU/Dendrite.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "$ARTEFACTS/AU/dendrite.component" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
           auval -strict -v aufx Vibr Hakd
           "$PLUGINVAL" --strictness-level "$PLUGINVAL_STRICTNESS" --validate-in-process \
-            --timeout-ms 600000 --validate ~/Library/Audio/Plug-Ins/Components/Dendrite.component
+            --timeout-ms 600000 --validate ~/Library/Audio/Plug-Ins/Components/dendrite.component
 
       - name: Discovery audit
         if: runner.os == 'Linux'
         run: |
           python3 -m pip install --user pedalboard numpy
-          xvfb-run -a python3 tools/discovery_audit.py "$ARTEFACTS/VST3/Dendrite.vst3" --out audit_report.md
+          xvfb-run -a python3 tools/discovery_audit.py "$ARTEFACTS/VST3/dendrite.vst3" --out audit_report.md
           cat audit_report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload audit report
@@ -100,8 +100,8 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          ditto -c -k --keepParent "$ARTEFACTS/VST3/Dendrite.vst3" dist/dendrite-vst3.zip
-          ditto -c -k --keepParent "$ARTEFACTS/AU/Dendrite.component" dist/dendrite-au.zip
+          ditto -c -k --keepParent "$ARTEFACTS/VST3/dendrite.vst3" dist/dendrite-vst3.zip
+          ditto -c -k --keepParent "$ARTEFACTS/AU/dendrite.component" dist/dendrite-au.zip
 
       - name: Upload macOS VST3 + AU
         if: runner.os == 'macOS'
