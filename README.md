@@ -3,7 +3,7 @@
 A zero-setup audio effect (VST3, plus AU on macOS) built with JUCE. Put it on any track and move one point.
 The repository is called `knit`; the plug-in is called **dendrite**, always lowercase (it was called viber until 0.2.0, and sets saved with viber still open).
 
-**Status: 0.6.0 hypnagogic (demo branch).** A binaural space instrument with no delay and no reverb. Everything it adds lives between your ears, so the mono sum is your dry signal. When the music keeps repeating, it itches, and three heads play: scream, laugh, manipulate. See [docs/HANDOVER-hypnagogic.md](docs/HANDOVER-hypnagogic.md).
+**Status: 0.6.1 hypnagogic (demo branch).** A binaural space instrument with no delay and no reverb. Everything it adds lives between your ears, so the mono sum is your dry signal. When the music keeps repeating, it itches, and three heads play: scream, laugh, manipulate. See [docs/HANDOVER-hypnagogic.md](docs/HANDOVER-hypnagogic.md).
 
 | Control | What you hear |
 |---|---|

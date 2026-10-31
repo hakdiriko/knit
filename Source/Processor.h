@@ -83,7 +83,7 @@ private:
     bool frameStartedIdle = true;
 
     // output chain
-    hyp::Glide bandPower, sidePower, balance, wet;
+    hyp::Glide balance, wet;
     float limiterEnv = 0.0f, limiterRelease = 0.0f;
     float corrLR = 0.0f, corrLL = 0.0f, corrRR = 0.0f;
     int scopeDecimate = 0;

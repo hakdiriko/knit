@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1 hypnagogic (demo branch): much stronger
+
+0.6.0 barely touched the sound. This build doesn't hold back.
+
+- **The space is about three times stronger.** At the default spot, each ear now changes almost as much as the dry sound itself. Turning the point toward left or right can put the sound entirely in one ear. In front and behind, both ears are equally loud but 90° apart in phase.
+- **Tiny moves matter.** The hidden settings change every 15 to 30 degrees around the disc instead of every 30 to 70. A 4° nudge now changes each ear about 14 dB more than before.
+- **New: the comb.** A copy of the sound 0.6 to 12 ms late, added to one ear and taken from the other. Short delays tear the bands apart between the ears; long ones feel like a room with no walls. Each part of the circle has its own delay, and moving between them crossfades, so nothing flanges.
+- **Drums get the space too.** Attacks are still kept sharper than the body, but no longer pulled out of the space.
+- **The heads are unmistakable.** The scream is much louder in each ear, and each laugh hop throws the image a quarter turn.
+- **Mono is still the dry signal, exactly.** Only its level changes: about 2.4 dB quieter at the default spot and 3.2 dB at full depth. It no longer wobbles with the music.
+
 ## 0.6.0 hypnagogic (demo branch, not merged)
 
 A different instrument, written from scratch on its own branch. No delay, no reverb: a space that exists only between your ears.

@@ -6,8 +6,11 @@ namespace
 {
     // Depth regimes. Boundaries sit at different places for each quantity,
     // so moving between regimes is a blur, never a step.
-    const Path<5> nearPath    {{{ { 0.0f, 0.22f }, { 0.25f, 0.45f }, { 0.55f, 0.52f }, { 0.80f, 0.40f }, { 1.0f, 0.30f } }}};
-    const Path<5> diffusePath {{{ { 0.0f, 0.03f }, { 0.20f, 0.10f }, { 0.50f, 0.45f }, { 0.80f, 0.85f }, { 1.0f, 1.00f } }}};
+    // Side gains are relative to the Mid: at 1 the near path alone can put the whole
+    // band in one ear. Quiet near the centre of the disc, loud everywhere else.
+    const Path<5> nearPath    {{{ { 0.0f, 0.30f }, { 0.20f, 0.75f }, { 0.45f, 1.00f }, { 0.75f, 0.90f }, { 1.0f, 0.65f } }}};
+    const Path<5> diffusePath {{{ { 0.0f, 0.06f }, { 0.20f, 0.30f }, { 0.45f, 0.75f }, { 0.75f, 1.15f }, { 1.0f, 1.40f } }}};
+    const Path<5> combPath    {{{ { 0.0f, 0.00f }, { 0.15f, 0.25f }, { 0.40f, 0.70f }, { 0.70f, 0.85f }, { 1.0f, 0.50f } }}};
     const Path<5> spreadPath  {{{ { 0.0f, 2.20f }, { 0.30f, 1.50f }, { 0.55f, 0.90f }, { 0.80f, 0.50f }, { 1.0f, 0.32f } }}};  // pole width in ERBs
     const Path<4> tauPath     {{{ { 0.0f, 0.04f }, { 0.40f, 0.12f }, { 0.75f, 0.30f }, { 1.0f, 0.42f } }}};                     // ms
     const Path<4> beatPath    {{{ { 0.0f, 0.0f }, { 0.72f, 0.0f }, { 0.86f, -0.04f }, { 1.0f, -0.30f } }}};                      // Hz; negative rises
@@ -26,13 +29,18 @@ void Field::prepare (double sampleRate)
     sr = sampleRate;
     nearRe.prepare ((int) (0.004 * sr));
     nearIm.prepare ((int) (0.004 * sr));
+    combRe.prepare ((int) (0.014 * sr));
+    combIm.prepare ((int) (0.014 * sr));
 
-    tauLand.build (0x51, 7);
-    offsetLand.build (0x52, 5);
-    distanceLand.build (0x53, 9);
-    balanceLand.build (0x54, 6);
-    beatLand.build (0x55, 4);
-    poleLand.build (0x56, 11);
+    // Many cells per lap: about every 15 to 30 degrees the hidden settings are somewhere else.
+    tauLand.build (0x51, 17);
+    offsetLand.build (0x52, 13);
+    distanceLand.build (0x53, 19);
+    balanceLand.build (0x54, 11);
+    beatLand.build (0x55, 7);
+    poleLand.build (0x56, 23);
+    combLand.build (0x57, 24);
+    combAngleLand.build (0x58, 15);
 
     thetaDrift.prepare (sr, 23.0f, 0x61);
     tauDrift.prepare (sr, 17.0f, 0x62);
@@ -48,7 +56,8 @@ void Field::prepare (double sampleRate)
 
     orbitCoef = std::exp (-1.0f / (0.12f * (float) sr));
     depthKnob.setTime (0.25f, sr);
-    for (auto* g : { &gNear, &gDiffuse, &tauSamples, &offsetNow }) g->setTime (0.03f, sr);
+    for (auto* g : { &gNear, &gDiffuse, &gComb, &tauSamples, &offsetNow, &combAngleNow }) g->setTime (0.03f, sr);
+    combFadeStep = 1.0f / (0.06f * (float) sr);
     beatNow.setTime (0.2f, sr);
     reset();
 }
@@ -57,6 +66,7 @@ void Field::reset()
 {
     airRe.clear(); airIm.clear();
     nearRe.clear(); nearIm.clear();
+    combRe.clear(); combIm.clear();
     for (auto& p : poles) { p.re.fill (0.0f); p.im.fill (0.0f); }
     orbitNow = orbitTarget; depthKnob.value = depthTarget;
     fieldPhase = 0.0f; tick = 0;
@@ -64,6 +74,9 @@ void Field::reset()
     // A fresh instance starts in place, without gliding in.
     gNear.value = nearTarget; gDiffuse.value = diffuseTarget; tauSamples.value = tauTarget;
     offsetNow.value = offsetTarget; beatNow.value = beatTarget;
+    gComb.value = combTarget; combAngleNow.value = combAngleTarget;
+    combFrom = combTo = combDelayTarget; combFade = 1.0f;
+    addedPower = nearTarget * nearTarget + diffuseTarget * diffuseTarget + combTarget * combTarget;
 }
 
 const char* Field::regimeName (float depth)
@@ -87,11 +100,25 @@ void Field::control (const HeadMods& mods)
 
     // The terrain: each hidden setting has its own seeded landscape around the circle.
     const float bal = balanceLand.at (o);
-    nearTarget = nearPath (d) * (1.0f + 0.3f * bal);
-    diffuseTarget = diffusePath (d) * (1.0f - 0.3f * bal);
-    tauTarget = tauPath (d) * 0.001f * (float) sr * std::exp2 (0.85f * tauLand.at (o));
+    nearTarget = nearPath (d) * (1.0f + 0.45f * bal);
+    diffuseTarget = diffusePath (d) * (1.0f - 0.45f * bal);
+    tauTarget = tauPath (d) * 0.001f * (float) sr * std::exp2 (1.2f * tauLand.at (o));
     offsetTarget = pi * offsetLand.at (o);
     beatTarget = beatPath (d) * std::exp2 (0.6f * beatLand.at (o));
+
+    // The comb lives on plateaus: each stretch of the circle has its own delay, from
+    // 0.6 ms (bands torn apart) to 12 ms (a room with no walls). Crossing to the next
+    // plateau crossfades two read heads, so the delay never bends.
+    const float c = combLand.at (o);
+    combTarget = combPath (d) * (0.75f + 0.25f * std::abs (c));
+    combAngleTarget = pi * combAngleLand.at (o);
+    combDelayTarget = std::min (0.012f, 0.0006f * std::exp2 (4.3f * (0.5f + 0.5f * c))) * (float) sr;
+    if (combFade >= 1.0f && std::abs (combDelayTarget - combTo) > 0.04f * combTo)
+    {
+        combFrom = combTo;
+        combTo = combDelayTarget;
+        combFade = 0.0f;
+    }
 
     // Behind you is a little darker than in front: the pinna shades the back.
     const float behind = 0.5f - 0.5f * std::cos (tau * (o - 0.5f));
@@ -123,16 +150,23 @@ float Field::process (float re, float im, float attack, const HeadMods& mods)
     if (tick-- <= 0) { tick = 15; control (mods); }
 
     const float breath = std::exp2 (0.2f * levelDrift.next());            // about +-1.2 dB, slow
-    const float gn = gNear.step (nearTarget) * mods.near * breath * (1.0f - 0.6f * attack);
+    const float gn = gNear.step (nearTarget) * mods.near * breath * (1.0f - 0.25f * attack);
     const float gd = gDiffuse.step (diffuseTarget) * mods.diffuse / breath;
+    const float gc = gComb.step (combTarget) * mods.diffuse * (1.0f - 0.5f * attack);
+    const float combAngle = combAngleNow.step (combAngleTarget);
+    // Each path carries about the band's power. Only the knobs count: breath, attacks
+    // and the heads are left out, so the mono level never moves on its own.
+    addedPower = gNear.value * gNear.value + gDiffuse.value * gDiffuse.value + gComb.value * gComb.value;
     const float tauS = std::max (1.2f, tauSamples.step (tauTarget) * (1.0f + 0.06f * tauDrift.next()));
     const float offset = offsetNow.step (offsetTarget);
 
     fieldPhase += tau * beatNow.step (beatTarget) / (float) sr;
     fieldPhase -= tau * std::floor (fieldPhase / tau);
 
-    // Orbit 0.5 is straight ahead. Pointing left or right puts both cues on that side.
-    const float base = tau * (orbitNow - 0.5f) + 0.25f * pi + 0.3f * thetaDrift.next() + fieldPhase;
+    // The angle between the Side and the Mid is where you are. 0 = all in the left ear,
+    // pi = all in the right, +-pi/2 = both ears equally loud, 90 degrees apart in phase
+    // (in front, or behind). Orbit 0.5 is straight ahead.
+    const float base = tau * (orbitNow - 0.5f) + 0.5f * pi + 0.3f * thetaDrift.next() + fieldPhase;
     const float bodyAngle = base + mods.body;
     const float anchorAngle = base + mods.anchor;
 
@@ -147,7 +181,7 @@ float Field::process (float re, float im, float attack, const HeadMods& mods)
     const float nearSig = lerp (body, anchor, attack);
 
     // diffuse: only the body goes in, through one allpass per critical band
-    float vr = ar * (1.0f - 0.9f * attack), vi = ai * (1.0f - 0.9f * attack);
+    float vr = ar * (1.0f - 0.6f * attack), vi = ai * (1.0f - 0.6f * attack);
     for (auto& p : poles)
     {
         const float yr = p.d * vr + p.re[0];
@@ -162,6 +196,21 @@ float Field::process (float re, float im, float attack, const HeadMods& mods)
     const float a = bodyAngle + offset;
     const float diffuseSig = turn (vr, vi, std::cos (a), std::sin (a));
 
-    return gn * nearSig + gd * diffuseSig;
+    // comb: the band late by a few milliseconds, two heads crossfading between plateaus
+    combRe.push (ar);
+    combIm.push (ai);
+    float cr = combRe.read (combTo), ci = combIm.read (combTo);
+    if (combFade < 1.0f)
+    {
+        combFade = std::min (1.0f, combFade + combFadeStep);
+        const float w = std::sin (0.5f * pi * combFade);
+        const float v = std::cos (0.5f * pi * combFade);
+        cr = w * cr + v * combRe.read (combFrom);
+        ci = w * ci + v * combIm.read (combFrom);
+    }
+    const float ca = bodyAngle + combAngle;
+    const float combSig = turn (cr, ci, std::cos (ca), std::sin (ca));
+
+    return gn * nearSig + gd * diffuseSig + gc * combSig;
 }
 } // namespace hyp

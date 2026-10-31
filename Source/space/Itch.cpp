@@ -148,18 +148,19 @@ float Heads::process (float re, float im, HeadMods& mods)
             {
                 screamTick = 15;
                 const float f = std::min (screamFrom * std::exp2 (screamRise * clamp01 (ps)), 0.2f * (float) sr);
-                lowRe.bandpass (f, 9.0f, sr);  lowIm.copyCoefficients (lowRe);
-                highRe.bandpass (2.0f * f, 9.0f, sr); highIm.copyCoefficients (highRe);
+                lowRe.bandpass (f, 6.0f, sr);  lowIm.copyCoefficients (lowRe);
+                highRe.bandpass (2.0f * f, 6.0f, sr); highIm.copyCoefficients (highRe);
             }
-            // k sets the interaural phase in the band: 2 atan k, from about 70 to 130 degrees.
-            const float k = e * (0.8f + 1.4f * strength);
+            // k > 1 flips the band's phase in the far ear: one ear gets it (k + 1) times
+            // louder, the other (k - 1) times, upside down. In mono it is not there at all.
+            const float k = e * (2.2f + 2.8f * strength);
             const float a = screamSide * 0.5f * pi + 0.6f * flutter.next();
             const float c = std::cos (a), s = std::sin (a);
             const float low = turn (lowRe.process (re), lowIm.process (im), c, s);
             const float high = turn (highRe.process (re), highIm.process (im), c, -s);   // the octave tears the other way
             screamSig = k * (low + 0.5f * high);
-            mods.near *= 1.0f - 0.4f * e;            // the space contracts toward the ghost
-            mods.diffuse *= 1.0f - 0.5f * e;
+            mods.near *= 1.0f - 0.6f * e;            // the space contracts toward the ghost
+            mods.diffuse *= 1.0f - 0.7f * e;
             lamps[0] = e * (0.5f + 0.5f * strength);
         }
         else
@@ -181,8 +182,8 @@ float Heads::process (float re, float im, HeadMods& mods)
         if (haStart >= 0.0 && t >= haStart && t < haStart + haLength)
         {
             const float b = swell ((float) ((t - haStart) / haLength), 0.22f) * haAmp;
-            wholeTurn += haSign * 1.35f * b;
-            mods.near *= 1.0f + 0.9f * b;
+            wholeTurn += haSign * 0.5f * pi * b;     // a quarter turn: from one ear past the middle
+            mods.near *= 1.0f + 0.6f * b;
             lamps[1] = b;
         }
 

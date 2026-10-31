@@ -12,6 +12,10 @@
 //            (one per critical band of the ear). Flat in magnitude, no echoes, no
 //            tail: only phase, scrambled inside each critical band, which the ear
 //            hears as width, then envelopment. Narrower poles = farther away.
+//   comb     the Mid, 0.6 to 12 ms late, added to one ear and taken from the other.
+//            The two ears get complementary combs (PS22-style interleave) that cancel
+//            in mono. Short = bands torn apart, long = a room without reflections.
+//            Its delay jumps between places by crossfade, never by gliding (no flange).
 //
 // Attacks skip the diffuser and keep their own angle (the anchor), so drums stay
 // sharp and the ear localises by the onset while the body spreads (precedence and
@@ -44,6 +48,9 @@ public:
     // re/im: the analytic Mid band. attack: 0..1, how much of this moment is an onset.
     float process (float re, float im, float attack, const HeadMods& mods);
 
+    // How much Side the field adds, as a power ratio to the Mid band.
+    float power() const { return addedPower; }
+
     static const char* regimeName (float depth);
     static const char* placeName (float orbit);
 
@@ -58,18 +65,21 @@ private:
     Glide depthKnob;
 
     Biquad airRe, airIm;
-    Line nearRe, nearIm;
+    Line nearRe, nearIm, combRe, combIm;
 
     struct Section { float c = 0, d = 0; std::array<float, 2> re {}, im {}; float centre = 1000.0f, erb = 100.0f; };
     std::array<Section, sections> poles;
 
-    Terrain tauLand, offsetLand, distanceLand, balanceLand, beatLand, poleLand;
+    Terrain tauLand, offsetLand, distanceLand, balanceLand, beatLand, poleLand, combLand, combAngleLand;
     Wander thetaDrift, tauDrift, levelDrift, poleDrift;
 
     // control-rate targets, glided per sample
-    Glide gNear, gDiffuse, tauSamples, offsetNow, beatNow;
-    float nearTarget = 0, diffuseTarget = 0, tauTarget = 2, offsetTarget = 0, beatTarget = 0;
-    float fieldPhase = 0.0f, poleDriftNow = 0.0f;
+    Glide gNear, gDiffuse, gComb, tauSamples, offsetNow, beatNow, combAngleNow;
+    float nearTarget = 0, diffuseTarget = 0, combTarget = 0, tauTarget = 2, offsetTarget = 0, beatTarget = 0, combAngleTarget = 0;
+
+    // the comb's two read heads: the old delay fades out while the new one fades in
+    float combDelayTarget = 100.0f, combFrom = 100.0f, combTo = 100.0f, combFade = 1.0f, combFadeStep = 0.0f;
+    float fieldPhase = 0.0f, poleDriftNow = 0.0f, addedPower = 0.0f;
     int tick = 0;
 };
 } // namespace hyp

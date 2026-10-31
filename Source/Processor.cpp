@@ -85,8 +85,6 @@ void HypnagogicProcessor::prepareToPlay (double sampleRate, int)
     slowUp = coefFor (0.012f, sr);  slowDown = coefFor (0.06f, sr);
     attackUp = coefFor (0.0005f, sr); attackDown = coefFor (0.03f, sr);
 
-    bandPower.setTime (2.0f, sr);
-    sidePower.setTime (2.0f, sr);
     balance.setTime (1.0f, sr);
     wet.setTime (0.01f, sr);              // about 30 ms to settle: a click-free bypass
     limiterRelease = coefFor (0.12f, sr);
@@ -106,8 +104,7 @@ void HypnagogicProcessor::resetEngine()
     beat = 0.0;
     lastStep = -1; lastFrame = std::numeric_limits<int64_t>::min();
     frameSum = 0.0f; frameSteps = 0; boredFrames = 0; frameStartedIdle = true;
-    bandPower.value = sidePower.value = 0.0f;
-    balance.value = 1.0f;
+    balance.value = 1.0f / std::sqrt (std::sqrt (1.0f + std::min (4.0f, field.power())));
     wet.value = bypassParam->load() > 0.5f ? 0.0f : 1.0f;
     limiterEnv = 0.0f;
     corrLR = corrLL = corrRR = 0.0f;
@@ -231,7 +228,9 @@ void HypnagogicProcessor::run (juce::AudioBuffer<float>& buffer, bool forceBypas
 
         // Adding Side makes the stereo louder while the mono sum stays the dry Mid.
         // Pull both back by half the added power in dB: mono moves level, never colour.
-        const float ratio = std::min (1.5f, sidePower.step (made * made) / (bandPower.step (re * re) + 1e-9f));
+        // The added power comes from the field's own gains, not from measuring the
+        // signal, so the trim only moves when the space moves, never with the music.
+        const float ratio = std::min (4.0f, field.power());
         const float g = balance.step (1.0f / std::sqrt (std::sqrt (1.0f + ratio)));
 
         const float side = dSide + made + scream;

@@ -61,7 +61,7 @@ struct Path
 // of rotation a different place. Periodic, so a full turn lands where it started.
 struct Terrain
 {
-    std::array<float, 16> lattice {};
+    std::array<float, 32> lattice {};
     int cells = 8;
 
     void build (uint64_t seed, int numCells)
