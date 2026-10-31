@@ -23,6 +23,6 @@ cmake --build build --config Release
 python3 tools/discovery_audit.py build/dendrite_artefacts/Release/VST3/dendrite.vst3
 ```
 
-Done means: CI green on all three platforms (pluginval passes), the audit shows 0 FAIL, and `CHANGELOG.md` is updated.
+Done means: CI green (pluginval passes; while Hakan tests, pushes build Windows and Linux only, and the Mac job runs on a manual workflow run before a release), the audit shows 0 FAIL, and `CHANGELOG.md` is updated.
 Hakan is on Windows 11 with Ableton Live 12, so the Windows VST3 artifact is the one he loads.
 Never change `PLUGIN_MANUFACTURER_CODE`/`PLUGIN_CODE` (or the bundle id, or the APVTS state type `"viber"`): hosts identify the plug-in by them, and saved sessions would lose it or its settings.
