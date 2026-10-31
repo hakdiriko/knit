@@ -61,6 +61,8 @@ Two Fular ideas are worth keeping: **tape-style slowdown** (pitch and speed chan
 
 ## Core concept (V1 direction — revise after prototypes if listening says so)
 
+> **2026-10-31, dendrite 1.0.** The network below was the starting point (0.1 to 0.3). Listening moved the instrument to a mid/side dub echo that grows around your head, with breathing, a throw and the itch heads: see `CHANGELOG.md` (1.0.0) and `DECISIONS.md`. The one sentence and the design principles still hold.
+
 ### "Ecosystem": a small network of nodes that feed into each other
 
 - **4 nodes.** Each is a modulated delay → filter → saturation, with its own character:
@@ -113,6 +115,8 @@ Two Fular ideas are worth keeping: **tape-style slowdown** (pitch and speed chan
 ---
 
 ## Roadmap
+
+> **Where 1.0 stands.** The phases below were written for the network. 1.0 delivers a finished engine and a custom UI (Phase 3's look) on the new echo. Still open after 1.0: presets with evocative names, synapses, and a sidechain that steers the breathing (Hakan's idea, 2026-10-30).
 
 **Phase 0 — Foundation**
 - Repo and the CMake/JUCE skeleton

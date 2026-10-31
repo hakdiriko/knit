@@ -1,0 +1,74 @@
+// The whole of dendrite's sound, without JUCE: the echo, the itch and the output chain.
+// The plug-in drives it from its parameters; the offline tools render it directly.
+#pragma once
+
+#include "Echo.h"
+#include "Itch.h"
+
+namespace dendrite
+{
+struct HostTime
+{
+    double bpm = 120.0;
+    double barBeats = 4.0;   // quarter notes per bar
+    bool playing = false;
+    double ppq = 0.0;        // position in quarter notes when playing
+};
+
+class Engine
+{
+public:
+    // Itch frame choices, in bars. Index 0 is off.
+    static constexpr int frameChoices = 9;
+    static constexpr float frameBars[frameChoices] = { 0.0f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f, 8.0f };
+
+    void prepare (float sampleRate);
+    void reset();
+    void setControls (float feed, float space, bool throwHeld, int itchChoice, bool bypassed) noexcept;
+
+    // In place, stereo. left/right may be the same signal for a mono input.
+    void process (float* left, float* right, int numSamples, const HostTime& time) noexcept;
+
+    struct View
+    {
+        Echo::View echo;
+        float repetition = 0.0f, frameProgress = 0.0f, boredom = 0.0f;
+        std::array<float, 3> lamps {};
+        bool itching = false;
+        float correlation = 1.0f, inLevel = 0.0f, outLevel = 0.0f;
+        double bpm = 120.0;
+        bool hostPlaying = false;
+    };
+    const View& view() const noexcept { return state; }
+
+    bool takeOnset (float& level, bool& thrown) noexcept { return echo.takeOnset (level, thrown); }
+
+private:
+    void tickClock (double beatsPerSample, double frameBeats, double barBeats, int stepsPerBar, double samplesPerBeat) noexcept;
+
+    float sr = 48000.0f;
+    Echo echo;
+    Listener listener;
+    Heads heads;
+
+    int itchChoice = 7;
+    float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f;
+
+    // attack detector
+    Biquad attackFilter;
+    float attackFast = 0.0f, attackSlow = 0.0f, attack = 0.0f;
+    float fastUp = 0, fastDown = 0, slowUp = 0, slowDown = 0, attackUp = 0, attackDown = 0;
+
+    // musical clock: Live's while it plays, otherwise free
+    double beat = 0.0;
+    int64_t lastStep = -1, lastFrame = INT64_MIN;
+    float frameSum = 0.0f;
+    int frameSteps = 0, boredFrames = 0;
+    bool frameStartedIdle = true;
+
+    // output chain
+    float limiterEnv = 0.0f, limiterRelease = 0.0f;
+    float corrLR = 0.0f, corrLL = 0.0f, corrRR = 0.0f, inPower = 0.0f, outPower = 0.0f, meterCoef = 0.0f;
+    View state;
+};
+} // namespace dendrite

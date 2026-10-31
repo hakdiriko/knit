@@ -13,7 +13,9 @@ Install:  pip install pedalboard numpy
 Usage:    python discovery_audit.py path/to/Plugin.vst3 [--steps 21] [--random 100]
                                     [--out audit_report.md] [--input extra.wav ...]
 
-Note: written before the plug-in exists; adapt parameter names/skips once it does.
+dendrite notes: the space lives between the ears, so spectrograms are compared per ear.
+Its mono sum is the dry plus a dub echo that the space never touches, so MONO_BREAK checks
+that moving `space` changes the echo's mono sum by level only.
 """
 import argparse
 import math
@@ -33,12 +35,12 @@ NO_EFFECT_DB = 1.0        # whole sweep never moves further than this from defau
 JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
+MONO_BREAK_DB = -30.0     # the echo's mono sum may change with space by level only (residual, dB)
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch", "auto", "after", "build")  # params not expected to change character
-# "sync" (and "sync_jump") need a host tempo, and pedalboard has no play head, so they are no-ops here.
-# "scratch" is a trigger: only a flip during playback scratches, and every render here starts from reset.
-# "auto_moves", "after" and "build_up" act after 4 to 64 bars of repetition, far longer than a render here.
-
+SKIP_PARAM_WORDS = ("bypass", "itch", "throw")   # not swept one at a time
+# "itch" acts after one to eight bars of repetition plus a frame of relief, longer than a sweep render.
+# "throw" is a momentary pad: held, it opens the send. Both still take part in the random states.
+RANDOM_SKIP_WORDS = ("bypass",)
 
 # ---------------------------------------------------------------- test signals
 def make_signals(sr=SR, dur=DUR, seed=1):
@@ -100,29 +102,44 @@ BAND_EDGES = 31.25 * 2 ** (np.arange(0, 28) / 3)   # 1/3-octave edges, ~31 Hz ..
 def analyse(y, sr=SR):
     """Return dict: finite, peak, rms_db, spec_db.
 
-    spec_db is a time x band matrix (1/3-octave bands, ~43 ms frames) in dB.
-    Comparing whole spectrograms, not just the average spectrum, matters:
-    delays, echoes, grains and tails change *when* energy happens far more
-    than the long-term average colour, and an average-only metric is blind to them.
+    spec_db is a time x band matrix (1/3-octave bands, ~43 ms frames) in dB, for each
+    channel side by side. Comparing whole spectrograms, not just the average spectrum,
+    matters: delays, echoes, grains and tails change *when* energy happens far more
+    than the long-term average colour. Comparing each ear, not the mono sum, matters
+    for a plug-in whose space lives between the ears: its mono sum barely changes.
     """
     finite = bool(np.all(np.isfinite(y)))
     if not finite:
         return {"finite": False, "peak": float("inf"), "rms_db": 0.0, "spec_db": None}
-    mono = y.mean(axis=0) if y.ndim == 2 else y
+    chans = y if y.ndim == 2 else y[np.newaxis, :]
     peak = float(np.max(np.abs(y)))
-    rms = math.sqrt(float(np.mean(mono ** 2)) + 1e-20)
+    rms = math.sqrt(float(np.mean(chans ** 2)) + 1e-20)
     nfft, hop = 2048, 2048
     win = np.hanning(nfft)
-    frames = np.array([mono[i:i + nfft] * win for i in range(0, len(mono) - nfft, hop)])
-    mag = np.abs(np.fft.rfft(frames, axis=1)) ** 2            # (time, bins)
     freqs = np.fft.rfftfreq(nfft, 1 / sr)
-    cols = []
-    for lo, hi in zip(BAND_EDGES[:-1], BAND_EDGES[1:]):
-        sel = (freqs >= lo) & (freqs < hi)
-        cols.append(mag[:, sel].mean(axis=1) if np.any(sel) else np.zeros(len(frames)))
-    spec = 10 * np.log10(np.stack(cols, axis=1) + 1e-12)
+    specs = []
+    for ch in chans:
+        frames = np.array([ch[i:i + nfft] * win for i in range(0, len(ch) - nfft, hop)])
+        mag = np.abs(np.fft.rfft(frames, axis=1)) ** 2            # (time, bins)
+        cols = []
+        for lo, hi in zip(BAND_EDGES[:-1], BAND_EDGES[1:]):
+            sel = (freqs >= lo) & (freqs < hi)
+            cols.append(mag[:, sel].mean(axis=1) if np.any(sel) else np.zeros(len(frames)))
+        specs.append(np.stack(cols, axis=1))
+    spec = 10 * np.log10(np.concatenate(specs, axis=1) + 1e-12)
     spec = np.maximum(spec, -80.0)                            # floor: silence vs silence = 0
     return {"finite": True, "peak": peak, "rms_db": 20 * math.log10(rms), "spec_db": spec}
+
+
+def mono_residual(dry, out_a, out_b):
+    """How far the echo's mono sum in render b is from render a, in dB below it, after a
+    gain match. Very negative = the two differ only in level (mono-safe space)."""
+    d = dry.mean(axis=0)
+    a = out_a.mean(axis=0) - d
+    b = out_b.mean(axis=0) - d
+    g = float(np.dot(b, a) / (np.dot(a, a) + 1e-20))
+    r = b - g * a
+    return 10 * math.log10(float(np.mean(r ** 2)) / (float(np.mean(b ** 2)) + 1e-20) + 1e-20)
 
 
 def distance(a, b):
@@ -169,13 +186,25 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
     # 1. Insert test
     restore()
     lines.append("## Default state vs dry\n")
-    lines.append("| signal | distance from dry (dB) | out RMS (dBFS) |\n|---|---|---|")
+    lines.append("| signal | distance from dry (dB) | out RMS (dBFS) | echo mono, default vs no space (dB) |\n|---|---|---|---|")
+    render(plugin, signals[next(iter(signals))])      # warm-up: some hosts read latency only after a first render
+    space = next((p for k, p in params.items() if k.lower() == "space"), None)
     for sname, audio in signals.items():
-        dry, wet = analyse(audio), analyse(render(plugin, audio))
+        out = render(plugin, audio)
+        dry, wet = analyse(audio), analyse(out)
         d = distance(dry, wet)
-        lines.append(f"| {sname} | {d:.2f} | {wet['rms_db']:.1f} |")
+        mono = float("nan")
+        if space is not None and sname != "impulse":
+            set_raw(space, 0.0)
+            flat = render(plugin, audio)
+            restore()
+            mono = mono_residual(audio, flat, out)
+        mono_text = "–" if math.isnan(mono) else f"{mono:.1f}"
+        lines.append(f"| {sname} | {d:.2f} | {wet['rms_db']:.1f} | {mono_text} |")
         if sname != "impulse" and d < INSERT_DULL_DB:
             flags.append(("WARN", "(default)", sname, f"INSERT_DULL: only {d:.2f} dB from dry"))
+        if sname != "impulse" and mono > MONO_BREAK_DB:
+            flags.append(("WARN", "(default)", sname, f"MONO_BREAK: space changes the echo's mono sum ({mono:.1f} dB)"))
     lines.append("")
 
     # 2. Parameter sweeps
@@ -228,7 +257,7 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
     test = {k: v for k, v in signals.items() if k != "impulse"}
     for _ in range(n_random):
         for k, p in params.items():
-            if not any(w in k.lower() for w in SKIP_PARAM_WORDS):
+            if not any(w in k.lower() for w in RANDOM_SKIP_WORDS):
                 set_raw(p, rng.random())
         for sname, audio in test.items():
             r = analyse(render(plugin, audio))

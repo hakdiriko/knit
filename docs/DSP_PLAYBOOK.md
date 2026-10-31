@@ -180,3 +180,15 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 - [ ] pluginval passes at strictness 10.
 - [ ] UI: animation is smooth, every knob shows its value on hover, double-click resets a knob to default, and the visuals react to audio.
 - [ ] Preset names evoke places and feelings, not specs.
+
+---
+
+## 11. Mono-safe space (learned building dendrite 1.0)
+
+- **Width lives only in the Side.** Build it from the Mid (pan k·sinθ·M, a 90° allpass pair for spread) and write it into the Side; the Mid must never read the Side. Then the mono sum is the dry plus a mono echo, whatever space does.
+- **Any gain computed from the Side must not touch the Mid.** Loop and output ceilings run on Mid and Side separately; one linked gain would let space change the mono sum.
+- **Coherent vs. decorrelated build-up.** Undiffused, the Side recirculates in phase and grows like the Mid. Diffused, each pass adds in power, not amplitude, so on steady tones the Side drops several dB. Raise the Side output where diffusion fades in, or width dips as the knob goes up.
+- **Never switch an allpass chain in.** With a small coefficient a Schroeder allpass is a pure delay, so switching it on jumps the Side in time. Run it always and crossfade.
+- **Ceilings follow what was played.** Feedback and wet output are capped relative to the recent input peak (not a fixed level), so endless and throws stay as big as the playing and never lean on the safety limiter.
+- **Check:** the audit's MONO_BREAK compares the echo's mono sum at space 0 and at the default after a gain match; keep it under −30 dB (1.0 measures −133 to −139 dB).
+

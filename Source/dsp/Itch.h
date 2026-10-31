@@ -1,151 +1,121 @@
+// The itch ("kaşınmak"): dendrite listens for the music repeating itself. When a whole
+// frame (1 to 8 bars, Hakan's drag) sounds like the bars before it, it can't stand it
+// any more: it grabs the last accent of the loop and throws it to three heads that sit
+// one after another along the tape, like the three playback heads of a Space Echo.
+// The same moment passes head 1, then head 2, then head 3:
+//
+//   scream      the accent excites a throat: two narrow resonances with feedback that
+//               climb, so the loop's own material howls like a feedback scream. It sits
+//               between the ears (turned about 90 degrees, fluttering), a voice inside
+//               the skull.
+//   laugh       the accent's first syllable, retriggered at the rate of a laugh (about
+//               5 per second, slowing), each "ha" a little lower and softer, bouncing
+//               between the ears.
+//   manipulate  a hand on the reel: the accent plays back while the tape motor drags,
+//               so pitch and time fall together, and it swings around your head. It
+//               falls into the echo, and the echo's whole space turns with it (healing
+//               over about a minute).
+//
+// Everything a head plays also goes onto the echo's tape, so the itch keeps echoing in
+// the dotted trunk instead of ending like a sound effect. The heads are made only of the
+// music itself, at its own level, and never land twice the same way.
 #pragma once
 
-#include "Primitives.h"
+#include "Tools.h"
 
-namespace dendrite::dsp
+namespace dendrite
 {
-// What the itch asks the network to do. Refreshed every control tick.
-struct ItchMods
-{
-    std::array<float, 4> breath {};                  // per node, depth already applied (0 = still)
-    float ecologyAdd = 0.0f;                         // a move leans Ecology up (open) or down (close)
-    float sizeRatio = 1.0f;                          // a step: Echo, Shift and Memory times x ratio
-    float toneAdd = 0.0f;                            // octaves, the whole network's tone
-    std::array<float, 4> nodeGain { 1.0f, 1.0f, 1.0f, 1.0f }; // a lean brings one node forward
-    float scarDetune = 0.0f;                         // semitones, Resonator
-    float scarEcho = 0.0f;                           // relative, Echo time (free time only)
-    float scarTone = 0.0f;                           // octaves, every lowpass
-};
-
-// The itch: an integrate-and-fire neuron that gets bored of repetition.
-//
-//   listen   8 band envelopes (80 Hz to 10 kHz, one per octave), 20 frames a second.
-//            With a running transport, each frame is compared with the same moment
-//            1, 2, 4 and 8 bars earlier and the best match is the repeat score, so a
-//            1-bar loop and a 4-bar phrase both count as repeating. Without one, the
-//            score is how steady the spectrum is (the last 2 s against the last 10 s).
-//   count    bar by bar, the repeat score fills a counter. It is full after
-//            `patience` bars of exact repetition. New material empties it within about
-//            two bars, and moving a knob drains it.
-//   build    (optional) while the counter fills, the network already leans a little
-//            toward the move it is going to make, so the move is felt coming.
-//   fire     when the counter is full: on the next 4-bar line (or at once without a
-//            running transport). Only when Auto is on; the Scratch button always fires.
-//   move     the network turns its own knobs: open, close, step, lean or tilt. The move
-//            arrives over a beat, holds for a few bars, then returns over two.
-//   relief   breathing drops below normal for a few seconds and nothing builds.
-//   scar     each move leaves a small offset that heals over minutes; 15% stays.
-//
-// Under it, every node breathes: a 1/f walk plus a phase oscillator. The oscillators
-// pull on each other (Kuramoto) with a strength that follows Ecology, so past a
-// critical coupling the four wobbles lock and the whole network swells as one.
-//
-// Everything depends only on the audio, the knobs, the song position and the seed,
-// so playing from the same bar gives the same moves.
-class Itch
+// Is this sixteenth the same as the same sixteenth one, two or four bars ago?
+class Listener
 {
 public:
-    enum Move { none = -1, open = 0, close, step, lean, tilt, numMoves };
-    static const char* moveName (int move) noexcept;
-
-    struct Transport
-    {
-        double ppq = 0.0, bpm = 0.0, barQuarters = 4.0;
-        bool playing = false;
-    };
-
-    void prepare (float sampleRate, float controlRate);
-    void reset(); // dynamics only: the scars survive
-
-    void setAmount (float itch) noexcept { amount = itch; }
-    void setAuto (bool on) noexcept { autoOn = on; }
-    void setPatience (int bars) noexcept { patience = std::max (1, bars); }
-    void setBuild (bool on) noexcept { buildOn = on; }
-    void setKnobsMoving (bool moving) noexcept { knobsMoving = moving; }
-    void setTransport (const Transport&) noexcept;
-    void triggerManual() noexcept { manualPending = true; }
-
-    void analyse (float mono) noexcept; // every sample
-    void tick (float ecology) noexcept; // every control tick
-    const ItchMods& getMods() const noexcept { return mods; }
-
-    float getLevel() const noexcept { return std::min (1.0f, level / threshold); }
-    float getBarsHeard() const noexcept { return getLevel() * (float) patience; }
-    int getPatience() const noexcept { return patience; }
-    bool isAuto() const noexcept { return autoOn; }
-    int getActiveMove() const noexcept { return stage == idle ? none : current; }
-    float getTransient() const noexcept { return transient; }
-    float getSameness() const noexcept { return sameness; }
-    uint32_t getScratchCount() const noexcept { return scratchCount; }
-
-    // Three transient scars then three permanent ones: detune, echo, tone.
-    std::array<float, 6> getScars() const noexcept;
-    void setScars (const std::array<float, 6>&) noexcept;
+    void prepare (float sampleRate);
+    void reset();
+    void push (float mid) noexcept;          // every sample
+    void step (int stepsPerBar) noexcept;    // every sixteenth note
+    float repetition() const noexcept { return score; }
 
 private:
-    static constexpr int numBands = 8;
-    static constexpr int historyFrames = 1024; // 51 s of frames: 8 bars down to about 38 BPM
-
-    enum Stage { idle, arriving, holding, returning };
-
-    void analyseFrame() noexcept;
-    float repeatScore (const std::array<float, numBands>& db) const noexcept;
-    float barSeconds() const noexcept;
-    bool hasTempo() const noexcept { return transport.playing && transport.bpm > 0.0; }
-
-    int chooseMove() noexcept;
-    void prepareMove (int move, float depth) noexcept;
-    void fire (bool manual) noexcept;
-    void updateMove() noexcept;
-    void addScar() noexcept;
-    void restartDynamics (uint32_t seed) noexcept;
-
-    float sr = 48000.0f, controlRate = 3000.0f, dt = 1.0f / 3000.0f;
-    float amount = 0.0f;
-    int patience = 16;
-    bool autoOn = false, buildOn = true, knobsMoving = false, manualPending = false;
-
-    // Transport, advanced every tick between host updates.
-    Transport transport;
-    bool wasPlaying = false;
-    long long lastPhrase = 0;
-
-    // Listen
-    std::array<SvfBandpass, numBands> bands;
-    std::array<float, numBands> energy {}, shortDb {}, longDb {};
-    std::array<std::array<float, numBands>, historyFrames> history {};
-    int hopSamples = 2400, hopCounter = 0, historyPos = 0, framesSeen = 0, soundFrames = 0;
-    float hopSeconds = 0.05f;
-    float specSim = 0.0f, barSim = 0.0f, fastSim = 0.0f, sameness = 0.0f;
-    float prevBroadband = -100.0f, onsetRate = 0.0f, transient = 0.0f;
-
-    // Count and fire
-    float level = 0.0f, threshold = 1.0f, armedSeconds = 0.0f, relief = 0.0f;
-    Rng rng;
-
-    // The move: chosen early (so the build can lean toward it), then played.
-    struct Offsets
-    {
-        float ecology = 0.0f, ratio = 1.0f, tone = 0.0f;
-        std::array<float, 4> gain { 1.0f, 1.0f, 1.0f, 1.0f };
-    };
-    Stage stage = idle;
-    int current = none, pending = none, lastMove = none;
-    bool manualMove = false;
-    Offsets target, applied;
-    float moveAmount = 0.0f, stageTime = 0.0f, arriveFrom = 0.0f;
-    float arriveSeconds = 0.5f, holdSeconds = 8.0f, returnSeconds = 4.0f;
-    float appliedCoef = 0.0f;
-    uint32_t scratchCount = 0;
-
-    // Scars: index 0 detune, 1 echo, 2 tone.
-    std::array<float, 3> scarNow {}, scarKept {};
-    float healCoef = 1.0f, fastHealCoef = 1.0f;
-
-    // Breathing
-    std::array<PinkWalk, 4> pink;
-    std::array<float, 4> phase {};
-
-    ItchMods mods;
+    static constexpr int bands = 6, ringFrames = 512;
+    std::array<Biquad, bands> filters {};
+    std::array<float, bands> energy {};
+    float envCoef = 0.0f;
+    std::array<std::array<float, bands>, ringFrames> ring {};
+    int written = 0;
+    float score = 0.0f;
 };
-} // namespace dendrite::dsp
+
+class Heads
+{
+public:
+    void prepare (float sampleRate);
+    void reset();
+
+    // Every sample, before process(): the input as Mid/Side and how much of this moment
+    // is an onset (0..1).
+    void listen (float m, float s, float onset) noexcept;
+
+    // Itch now. gap: samples between the heads. beat: samples per quarter note.
+    void fire (float intensity, uint64_t seed, double gapSamples, double beatSamples, double barSamples) noexcept;
+
+    bool busy() const noexcept { return clock >= 0.0 && clock < end; }
+
+    // Per sample: what the heads play (out), what they write onto the echo's tape
+    // (toTape), and how far they turn the echo's space this sample.
+    void process (float& outM, float& outS, float& tapeM, float& tapeS, float& turn) noexcept;
+
+    float lamp (int head) const noexcept { return lamps[(size_t) std::clamp (head, 0, 2)]; }
+
+private:
+    struct Window
+    {
+        double start = 0, length = 1;
+        float phase (double t) const noexcept { return (float) ((t - start) / length); }
+    };
+
+    float readCapture (float position) const noexcept;
+    void copyCapture() noexcept;
+
+    float sr = 48000.0f;
+    Dice dice;
+
+    // the recent past, and the onsets heard in it
+    Ring historyM, historyS;
+    struct Onset { int64_t at = -1; float strength = 0.0f; };
+    std::array<Onset, 32> onsets {};
+    size_t onsetHead = 0;
+    float lastOnset = 0.0f, levelEnv = 0.0f;
+    int64_t now = 0;
+
+    // the grabbed accent (Mid only: the heads place it themselves)
+    std::vector<float> capture;
+    int captureLength = 0, copied = 0;
+    int64_t captureFrom = 0;
+    float capturePeak = 0.1f;
+
+    double clock = -1.0, end = 0.0;
+    float strength = 0.0f;
+    std::array<float, 3> lamps {};
+
+    // scream
+    Window screamWin;
+    float screamFrom = 600.0f, screamRise = 0.7f, screamSide = 1.0f, screamFeedback = 0.9f, screamRms = 0.0f;
+    float screamY1 = 0.0f, screamY2 = 0.0f, rmsCoef = 0.0f;
+    Biquad throat1, throat2;
+    PhasePair screamPair;
+    Wander flutter;
+    int screamTick = 0;
+
+    // laugh
+    Window laughWin;
+    double nextHa = 0.0, haStart = -1.0, haLength = 0.0;
+    float haRate = 5.0f, haSlow = 0.9f, haAmp = 0.0f, haSign = 1.0f, haDecay = 0.8f, haSpeed = 1.0f, haPos = 0.0f;
+    int haCount = 0, haMax = 5;
+    Biquad vowel;
+
+    // manipulate
+    Window manipWin;
+    float manipPos = 0.0f, manipFloor = 0.5f, manipTurn = 1.0f;
+    PhasePair manipPair;
+};
+} // namespace dendrite

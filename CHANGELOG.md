@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0 (dendrite, finished: a dub echo that grows around your head)
+
+A new instrument, built from what survived every test: the dotted dub echo of 0.5, the breathing you liked, the mono-safe space you asked for after the stab test, and the three heads of the hypnagogic demo. Four controls, a window to play, and a one-page manual in every download.
+
+- **The field.** One light to drag. Up is **feed**, how long the repeats live: off, whisper, dub, drown, endless. Right is **space**, where they live: inside, around, envelop, beyond. Every hit you play grows a branch on the field, and the repeats branch off it at the dotted ⅛ and the ¼. Shift-drag for fine moves, double-click for the default (dub 50, around 40), the mouse wheel moves feed (sideways: space).
+- **The echo.** Two tape heads in one loop, the dotted eighth and the quarter of your project's tempo (120 BPM without one). Every pass loses a little top, gains a little grit and wobbles with a slow wow that never repeats (the tape colour of 0.5, unchanged). The dry passes untouched and there is no mix knob.
+- **The space grows around your head.** The ⅛ keeps the side and the ¼ crosses it, so you hear the dub ping without hard left and right. Every pass writes a little of the middle into the side again, so each repeat steps further out. Envelop dissolves the side with every pass; beyond also turns it slowly around you. Fold to mono and you hear the plain dub echo: space changes the mono sum by level only (measured −133 to −139 dB residual).
+- **It breathes.** It ducks under what you play, swells in the gaps, drifts ±3 dB on its own and brightens on the in-breath. When you stop, the echo fills the silence for up to four bars.
+- **throw.** Hold it and what's playing goes into the echo: the send opens, the repeats jump louder and step out to one side, then fall back over about two bars and drift home. At feed off, only what you throw reaches the echo (the dub engineer's closed send). Map it to a pad or a key in Live.
+- **itch.** Choose 1, 1¼, 1½, 1¾, 2, 3, 4 or 8 bars, or off (default 4). dendrite compares every sixteenth with 1, 2 and 4 bars earlier. When a whole stretch sounds the same, it grabs the loudest hit of the last bar and three heads answer at one, two and three beats apart: **scream** (a rising throat sweeping across your head), **laugh** (ha, ha, ha, bouncing left and right) and **manipulate** (the hit slowed down and turned around you). A stretch of quiet always follows, and the longer a loop runs unchanged, the harder it itches.
+- **Never louder than what you played.** The echo has a ceiling just under the level of what goes in, so throws and endless stay big without slamming the −0.3 dBFS safety limiter.
+- **The window.** Dark stone, ochre light, coral for the itch. It scales from 75% to 150% (drag the corner), and shows the tempo it's locked to.
+- **Install.** The plug-in folder is now `dendrite.vst3` (lowercase). Replace any `Dendrite.vst3` or `viber.vst3` in `C:\Program Files\Common Files\VST3`.
+- Sets saved with 0.3 or earlier open with dendrite at its defaults: the network's knobs (ecology, size, tone, mix, output, sync, steady, auto, bars, build-up, scratch) are gone.
+- Zero latency. Checked: pluginval strictness 10, discovery audit 0 FAIL / 0 WARN, 300 random states all alive.
+
 ## 0.3.0 (test: listening to Hakan)
 
 What you heard in 0.2, and what changed:
