@@ -190,5 +190,5 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 - **Coherent vs. decorrelated build-up.** Undiffused, the Side recirculates in phase and grows like the Mid. Diffused, each pass adds in power, not amplitude, so on steady tones the Side drops several dB. Raise the Side output where diffusion fades in, or width dips as the knob goes up.
 - **Never switch an allpass chain in.** With a small coefficient a Schroeder allpass is a pure delay, so switching it on jumps the Side in time. Run it always and crossfade.
 - **Ceilings follow what was played.** Feedback and wet output are capped relative to the recent input peak (not a fixed level), so endless and throws stay as big as the playing and never lean on the safety limiter.
-- **Check:** the audit's MONO_BREAK compares the echo's mono sum at space 0 and at the default after a gain match; keep it under −30 dB (1.0 measures −133 to −139 dB).
+- **Check:** the audit's MONO_BREAK compares the echo's mono sum at space 0 and at the default after a gain match; keep it under −30 dB (1.0 measures −139 to −141 dB).
 
