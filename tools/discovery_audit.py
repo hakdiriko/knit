@@ -33,12 +33,10 @@ NO_EFFECT_DB = 1.0        # whole sweep never moves further than this from defau
 JUMP_DB = 6.0             # level change between neighbouring steps
 SILENT_DBFS = -60.0
 INSERT_DULL_DB = 1.5
+MONO_BREAK_DB = -30.0     # mono sum must stay this close to the dry mono (residual, dB)
 
-SKIP_PARAM_WORDS = ("bypass", "output", "trim", "sync", "scratch", "auto", "after", "build")  # params not expected to change character
-# "sync" (and "sync_jump") need a host tempo, and pedalboard has no play head, so they are no-ops here.
-# "scratch" is a trigger: only a flip during playback scratches, and every render here starts from reset.
-# "auto_moves", "after" and "build_up" act after 4 to 64 bars of repetition, far longer than a render here.
-
+SKIP_PARAM_WORDS = ("bypass", "frame")  # params not expected to change character in a short render
+# "itch_frame" acts after one to eight bars of repetition plus a frame of relief, longer than a render here.
 
 # ---------------------------------------------------------------- test signals
 def make_signals(sr=SR, dur=DUR, seed=1):
@@ -100,29 +98,49 @@ BAND_EDGES = 31.25 * 2 ** (np.arange(0, 28) / 3)   # 1/3-octave edges, ~31 Hz ..
 def analyse(y, sr=SR):
     """Return dict: finite, peak, rms_db, spec_db.
 
-    spec_db is a time x band matrix (1/3-octave bands, ~43 ms frames) in dB.
-    Comparing whole spectrograms, not just the average spectrum, matters:
-    delays, echoes, grains and tails change *when* energy happens far more
-    than the long-term average colour, and an average-only metric is blind to them.
+    spec_db is a time x band matrix (1/3-octave bands, ~43 ms frames) in dB, for each
+    channel side by side. Comparing whole spectrograms, not just the average spectrum,
+    matters: delays, echoes, grains and tails change *when* energy happens far more
+    than the long-term average colour. Comparing each ear, not the mono sum, matters
+    for a plug-in whose space lives between the ears: its mono sum barely changes.
     """
     finite = bool(np.all(np.isfinite(y)))
     if not finite:
         return {"finite": False, "peak": float("inf"), "rms_db": 0.0, "spec_db": None}
-    mono = y.mean(axis=0) if y.ndim == 2 else y
+    chans = y if y.ndim == 2 else y[np.newaxis, :]
     peak = float(np.max(np.abs(y)))
-    rms = math.sqrt(float(np.mean(mono ** 2)) + 1e-20)
+    rms = math.sqrt(float(np.mean(chans ** 2)) + 1e-20)
     nfft, hop = 2048, 2048
     win = np.hanning(nfft)
-    frames = np.array([mono[i:i + nfft] * win for i in range(0, len(mono) - nfft, hop)])
-    mag = np.abs(np.fft.rfft(frames, axis=1)) ** 2            # (time, bins)
     freqs = np.fft.rfftfreq(nfft, 1 / sr)
-    cols = []
-    for lo, hi in zip(BAND_EDGES[:-1], BAND_EDGES[1:]):
-        sel = (freqs >= lo) & (freqs < hi)
-        cols.append(mag[:, sel].mean(axis=1) if np.any(sel) else np.zeros(len(frames)))
-    spec = 10 * np.log10(np.stack(cols, axis=1) + 1e-12)
+    specs = []
+    for ch in chans:
+        frames = np.array([ch[i:i + nfft] * win for i in range(0, len(ch) - nfft, hop)])
+        mag = np.abs(np.fft.rfft(frames, axis=1)) ** 2            # (time, bins)
+        cols = []
+        for lo, hi in zip(BAND_EDGES[:-1], BAND_EDGES[1:]):
+            sel = (freqs >= lo) & (freqs < hi)
+            cols.append(mag[:, sel].mean(axis=1) if np.any(sel) else np.zeros(len(frames)))
+        specs.append(np.stack(cols, axis=1))
+    spec = 10 * np.log10(np.concatenate(specs, axis=1) + 1e-12)
     spec = np.maximum(spec, -80.0)                            # floor: silence vs silence = 0
     return {"finite": True, "peak": peak, "rms_db": 20 * math.log10(rms), "spec_db": spec}
+
+
+def mono_residual(dry, wet, max_lag=600):
+    """How far the wet mono sum is from the dry mono sum, in dB below the wet mono,
+    after the best latency alignment and gain. Very negative = mono-safe."""
+    d = dry.mean(axis=0)
+    m = wet.mean(axis=0)
+    a0, a1 = SR // 4, len(d) - max_lag - 1
+    b = d[a0:a1]
+    best = 0.0
+    for lag in range(-max_lag, max_lag + 1):
+        a = m[a0 + lag:a1 + lag]
+        g = float(np.dot(a, b) / (np.dot(b, b) + 1e-20))
+        r = a - g * b
+        best = min(best, 10 * math.log10(float(np.mean(r ** 2)) / (float(np.mean(a ** 2)) + 1e-20) + 1e-20))
+    return best
 
 
 def distance(a, b):
@@ -169,13 +187,18 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
     # 1. Insert test
     restore()
     lines.append("## Default state vs dry\n")
-    lines.append("| signal | distance from dry (dB) | out RMS (dBFS) |\n|---|---|---|")
+    lines.append("| signal | distance from dry (dB) | out RMS (dBFS) | mono sum vs dry mono (dB) |\n|---|---|---|---|")
+    render(plugin, signals[next(iter(signals))])      # warm-up: some hosts read latency only after a first render
     for sname, audio in signals.items():
-        dry, wet = analyse(audio), analyse(render(plugin, audio))
+        out = render(plugin, audio)
+        dry, wet = analyse(audio), analyse(out)
         d = distance(dry, wet)
-        lines.append(f"| {sname} | {d:.2f} | {wet['rms_db']:.1f} |")
+        mono = mono_residual(audio, out) if sname != "impulse" else float("nan")
+        lines.append(f"| {sname} | {d:.2f} | {wet['rms_db']:.1f} | {mono:.1f} |")
         if sname != "impulse" and d < INSERT_DULL_DB:
             flags.append(("WARN", "(default)", sname, f"INSERT_DULL: only {d:.2f} dB from dry"))
+        if sname != "impulse" and mono > MONO_BREAK_DB:
+            flags.append(("WARN", "(default)", sname, f"MONO_BREAK: mono sum differs from dry by {mono:.1f} dB"))
     lines.append("")
 
     # 2. Parameter sweeps

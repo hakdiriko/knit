@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.1 hypnagogic (demo branch): much stronger
+
+0.6.0 barely touched the sound. This build doesn't hold back.
+
+- **The space is about three times stronger.** At the default spot, each ear now changes almost as much as the dry sound itself. Turning the point toward left or right can put the sound entirely in one ear. In front and behind, both ears are equally loud but 90° apart in phase.
+- **Tiny moves matter.** The hidden settings change every 15 to 30 degrees around the disc instead of every 30 to 70. A 4° nudge now changes each ear about 14 dB more than before.
+- **New: the comb.** A copy of the sound 0.6 to 12 ms late, added to one ear and taken from the other. Short delays tear the bands apart between the ears; long ones feel like a room with no walls. Each part of the circle has its own delay, and moving between them crossfades, so nothing flanges.
+- **Drums get the space too.** Attacks are still kept sharper than the body, but no longer pulled out of the space.
+- **The heads are unmistakable.** The scream is much louder in each ear, and each laugh hop throws the image a quarter turn.
+- **Mono is still the dry signal, exactly.** Only its level changes: about 2.4 dB quieter at the default spot and 3.2 dB at full depth. It no longer wobbles with the music.
+
+## 0.6.0 hypnagogic (demo branch, not merged)
+
+A different instrument, written from scratch on its own branch. No delay, no reverb: a space that exists only between your ears.
+
+- **Mono is your dry signal.** Everything dendrite makes lives in the Side (L = M + S, R = M − S). Fold to mono and you get the dry track back, only up to about 1 dB quieter at full depth. Nothing below about 150 Hz goes into the space, so the sub stays centred.
+- **No knobs: a disc around your head.** Drag the point around you to turn the space (orbit), and outward to go deeper (depth: inside, around, envelop, dissolve). Near the rim the smallest moves change the most. Shift drags five times finer; double-click comes home (front, 45%). Orbit and depth are still plain parameters for Push, MIDI and automation.
+- **How the space is made.**
+  - Near: the track's own band, turned in phase between the ears. At the sides, level and time cues agree. In front and behind they disagree and the image splits by frequency, so a few degrees can flip it.
+  - Diffuse: 32 allpasses, one per critical band of the ear. They scramble phase without echoes or a tail, and narrower poles sound farther away.
+  - Attacks skip the diffuse part and stay sharp and anchored; only the body spreads.
+  - Dissolve turns the whole space slowly, so it rises endlessly like a barberpole.
+  - Everything drifts a little on slow, smooth random paths.
+- **The itch.** Drag the strip to set the frame: off, 1, 1.25, 1.5, 1.75, 2, 3, 4 or 8 bars (default 2). When a whole frame sounds like the bars before it, it itches, and three heads play in order like the heads of a Space Echo, at 1, 2 and 3 quarters of the frame:
+  1. **scream**: a ghost voice only two ears can hear, climbing inside your head while the space shrinks toward it.
+  2. **laugh**: the whole image giggles left and right, about five hops a second, slowing down.
+  3. **manipulate**: the body of the sound slides around your head while its attacks stay where they were, so you barely notice the move. Then the attacks catch up, and the new place heals back over about a minute.
+  After an itch there's always a full frame of relief, so on a steady loop it itches every third frame, a little harder each time. The same bar gives the same itch. Everything the heads do vanishes in mono.
+- 5 ms of latency, which Live compensates automatically.
+- The plug-in file is now `dendrite.vst3` (lowercase). Sets saved with earlier dendrite builds still find it, with default settings.
+
 ## 0.3.0 (test: listening to Hakan)
 
 What you heard in 0.2, and what changed:
