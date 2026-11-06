@@ -1,5 +1,5 @@
-// Colours and type for dendrite's window: dark stone, warm ivory ink, manganese-ochre
-// branches, a cool tint for space and a coral for the itch.
+// Colours and type for dendrite's window: true black, warm ivory light, manganese-ochre
+// growth, a cool tint for space and a coral for the itch.
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -8,14 +8,13 @@ namespace dendrite::ui
 {
 namespace colour
 {
-    const juce::Colour stone0 { 0xff0c0b0a }; // the deepest ground
-    const juce::Colour stone1 { 0xff141210 }; // panels
-    const juce::Colour stone2 { 0xff1d1a17 }; // raised
-    const juce::Colour line { 0xff2c2824 };
-    const juce::Colour line2 { 0xff403a33 };
+    const juce::Colour black { 0xff000000 };   // the ground: true black
+    const juce::Colour tissue { 0xff8a7058 };  // the living strands behind everything
+    const juce::Colour line { 0xff1e1b18 };
+    const juce::Colour line2 { 0xff3a342e };
     const juce::Colour ink { 0xffefe8dc };
     const juce::Colour inkDim { 0xff9c9288 };
-    const juce::Colour inkFaint { 0xff5f5850 };
+    const juce::Colour inkFaint { 0xff5a534c };
     const juce::Colour ochre { 0xffd9a35b };
     const juce::Colour ochreHot { 0xfff4cd8c };
     const juce::Colour cool { 0xff8cbccb };

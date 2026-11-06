@@ -4,8 +4,8 @@
 #include "ui/Controls.h"
 #include "ui/Field.h"
 
-// dendrite's window: the field (drag the light), the throw pad and the itch. It scales
-// from 75% to 150% and keeps its shape.
+// dendrite's window: true black, the field (drag the light) and a quiet strip under it
+// with the itch and its heads. It scales from 75% to 150% and keeps its shape.
 class DendriteEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -19,9 +19,12 @@ public:
 
     // For the snapshot tool: advance the animation to a given time without a timer.
     void animateTo (double seconds);
+    void setThrowStyle (dendrite::ui::Field::ThrowStyle);
+    dendrite::ui::Field& getField() { return field; }
 
 private:
     void timerCallback() override;
+    void layout();
 
     class Canvas : public juce::Component
     {
@@ -38,11 +41,10 @@ private:
     juce::SharedResourcePointer<dendrite::ui::Fonts> fonts;
     Canvas canvas { *this };
     dendrite::ui::Field field;
-    dendrite::ui::ThrowPad throwPad;
-    dendrite::ui::ItchPanel itch;
-    juce::String hint;
+    dendrite::ui::ItchStrip itch;
+    dendrite::ui::Soma soma;
+    dendrite::ui::Field::ThrowStyle throwStyle = dendrite::ui::Field::ThrowStyle::tissue;
     double started = 0.0;
-    int frame = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteEditor)
 };

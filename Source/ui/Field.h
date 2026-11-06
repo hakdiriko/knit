@@ -1,10 +1,14 @@
-// The field: dendrite's one surface. A slab of dark stone with faint mineral dendrites in
-// it, and a point of light you drag: up for more echo (feed), right for more space.
+// The field: dendrite's one surface. True black, with living strands drifting in it, and
+// a point of light you drag: up for more echo (feed), right for more space.
 //
-// Every time the music hits, a dendrite grows from the point. It is drawn from the echo
-// itself: a branch appears exactly when a repeat plays (a dotted branch that keeps its
-// side, a quarter branch that crosses), as bright as that repeat, and spreads as far as
-// the space takes it. Throws grow white; the itch's heads grow coral.
+// Every time the music hits, a dendrite grows from the light. Its timing comes from the
+// echo itself (a branch appears when a repeat plays: a dotted branch keeps its side, a
+// quarter branch crosses, as bright as that repeat), but its shape is chance: every tree
+// gets its own temper (how it curls, forks, wanders, how long its limbs are).
+//
+// The growth is a soft body. Young branches hang on the light and trail behind it when
+// you drag; older ones root into the tissue, so dragging stretches them thin until they
+// peel off and stay where they are. Throws grow white; the itch's heads grow coral.
 #pragma once
 
 #include "../Processor.h"
@@ -29,61 +33,119 @@ public:
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
-    float feedValue() const noexcept { return feed; }
-    float spaceValue() const noexcept { return space; }
-    bool isEngaged() const noexcept { return dragging || hovering; }
+    // How throw is played from the window (the throw parameter stays mappable in Live).
+    enum class ThrowStyle { soma, light, tissue };
+    void setThrowStyle (ThrowStyle s) { throwStyle = s; }
+    void setSoma (juce::Point<float> centreInField) { somaCentre = centreInField; }
 
-    std::function<void (const juce::String&)> onHint;
+    // For the snapshot tool: move the light or touch the field without a mouse.
+    void simulateTouch (juce::Point<float> unit, bool down);
+    void simulateMove (juce::Point<float> unit);
 
 private:
-    enum Kind : uint8_t { echoKind, throwKind, screamKind, laughKind, manipulateKind };
+    enum Kind : uint8_t { echoKind, throwKind, screamKind, laughKind, manipulateKind, swarmKind, ghostKind };
 
-    struct Node
+    // One tree's character, drawn at its birth and inherited by every branch.
+    struct Temper
     {
-        juce::Point<float> from, to, dir; // field units: x and y in 0..1, y down
+        float curl = 0.0f, fork = 0.3f, reach = 1.0f, bend = 0.3f, jolt = 0.1f, peel = 120.0f, stretch = 2.6f;
+    };
+
+    // A joint of the growth: a point mass hanging on its parent (or on the light).
+    struct Joint
+    {
+        juce::Point<float> p, prev, home, dir;
+        int parent = -1;          // >= 0: a joint; tethered: on the light; rooted: on its home
+        uint32_t parentUid = 0, uid = 0;
+        float rest = 0.0f, bend = 0.0f, level = 0.0f, life = 2.0f, grow = 0.1f;
         double born = 0.0;
-        float level = 0.0f, life = 2.0f;
+        Temper temper;
         uint8_t gen = 0;
         Kind kind = echoKind;
-        bool alive = false;
+        bool alive = false, twig = false;
     };
+    static constexpr int tethered = -1, rooted = -2;
+
     struct Due
     {
         double at = 0.0;
-        int parent = -1;
+        int joint = -1;
+        uint32_t uid = 0;
         bool quarter = false;
+    };
+
+    // The tissue: slow strands that grow in, sway, and retract, forever replaced.
+    struct Strand
+    {
+        int first = 0, count = 0, maxOrder = 1;
+        double born = 0.0;
+        float life = 40.0f, growIn = 8.0f, brightness = 0.2f;
+        juce::Colour colour;
+    };
+    struct Fibre
+    {
+        juce::Point<float> rest;
+        int parent = -1; // index within the strand, -1 for its root
+        uint8_t depth = 0;
+        uint16_t order = 0;
+    };
+    struct Spark
+    {
+        int strand = -1, fibre = -1;
+        float along = 0.0f, speed = 100.0f, level = 0.5f;
     };
 
     juce::Rectangle<float> inner() const;
     juce::Point<float> toScreen (juce::Point<float> unit) const;
+    juce::Point<float> toUnit (juce::Point<float> screen) const;
     juce::Point<float> pointUnit() const { return { space, 1.0f - feed }; }
-    int addNode (const Node&);
+    juce::Point<float> light() const { return toScreen (pointUnit()); }
+
+    int addJoint (Joint&);
+    bool parentOf (const Joint&, Joint*& out);
     void spawnRoot (float level, Kind kind, double now);
-    void spawnChild (int parent, bool quarter, double now);
+    void spawnFrom (int parent, bool quarter, double now);
     void growHeads (double now);
+    void simulate (float frames);
+    void seedStrand (Strand&, double now, bool midLife);
+    void tickTissue (double now, float dt);
+    juce::Point<float> flow (juce::Point<float> p, float t) const;
+    juce::Point<float> fibreAt (const Strand&, int fibre) const;
+    void paintTissue (juce::Graphics&);
+    void paintGrowth (juce::Graphics&);
     void setFromUnit (juce::Point<float> unit);
-    void renderStone();
+    void setThrow (bool on);
+    float gauss();
 
     DendriteProcessor& processor;
     juce::SharedResourcePointer<Fonts> fonts;
-    juce::ParameterAttachment feedLink, spaceLink;
+    juce::ParameterAttachment feedLink, spaceLink, throwLink;
     float feed = DendriteProcessor::defaultFeed, space = DendriteProcessor::defaultSpace;
+    ThrowStyle throwStyle = ThrowStyle::tissue;
+    juce::Point<float> somaCentre { -100.0f, -100.0f };
 
-    std::vector<Node> nodes;
+    std::vector<Joint> joints;
     std::vector<Due> due;
-    juce::Random random { 0x51ed };
-    double now = 0.0;
+    uint32_t nextUid = 1;
+    juce::Random random;
+    double now = 0.0, lastTick = -1.0;
+
+    std::vector<Strand> strands;
+    std::vector<Fibre> fibres;
+    std::vector<Spark> sparks;
+    double nextSpark = 0.0;
 
     // the itch heads' own growth
-    float lastLamp[3] {};
-    juce::Point<float> screamTip, manipulateCentre;
-    float manipulateAngle = 0.0f, manipulateRadius = 0.0f, laughSide = 1.0f;
-    double lastScream = 0.0, lastManipulate = 0.0;
+    float lastLamp[dendrite::Heads::count] {};
+    int screamTip = -1, laughTip = -1, manipulateLast = -1;
+    juce::Point<float> manipulateCentre;
+    float screamAngle = 0.0f, manipulateAngle = 0.0f, manipulateRadius = 0.0f, manipulateTurn = 1.0f, laughSide = 1.0f;
+    double lastScream = 0.0, lastManipulate = 0.0, lastSwarm = 0.0, lastGhost = 0.0;
 
-    juce::Image stone, glowOchre, glowIvory, glowCoral;
-    juce::Point<float> grabUnit;
-    juce::Point<float> lastMouse;
-    bool dragging = false, hovering = false;
-    float labelAlpha = 0.0f, pointGlow = 0.0f;
+    juce::Image glowOchre, glowIvory, glowCoral, glowCool, vignette;
+    juce::Point<float> lastLight, lightStep, lastMouse, touch;
+    float lightSpeed = 0.0f;
+    bool dragging = false, hovering = false, touching = false, throwHeld = false, grabbedLight = false;
+    float labelAlpha = 0.0f, pointGlow = 0.0f, touchGlow = 0.0f, throwGlow = 0.0f;
 };
 } // namespace dendrite::ui

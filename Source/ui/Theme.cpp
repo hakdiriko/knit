@@ -12,7 +12,7 @@ Fonts::Fonts()
 
 LookAndFeel::LookAndFeel()
 {
-    setColour (juce::TooltipWindow::backgroundColourId, colour::stone2);
+    setColour (juce::TooltipWindow::backgroundColourId, colour::black);
     setColour (juce::TooltipWindow::textColourId, colour::ink);
     setColour (juce::TooltipWindow::outlineColourId, colour::line2);
 }

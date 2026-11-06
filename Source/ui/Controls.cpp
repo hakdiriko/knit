@@ -7,243 +7,230 @@ namespace
     const auto& cellLabels = dendrite::Engine::frameLabels;
     const auto& headNames = dendrite::Heads::names;
     constexpr int heads = dendrite::Heads::count;
+    constexpr int cells = dendrite::Engine::frameChoices;
 
-    void panel (juce::Graphics& g, juce::Rectangle<float> b)
+    // a closed outline that wobbles a little, so nothing is a perfect circle
+    juce::Path membrane (juce::Point<float> c, float radius, float t, float wobble)
     {
-        g.setGradientFill (juce::ColourGradient (colour::stone2, b.getX(), b.getY(), colour::stone1, b.getX(), b.getBottom(), false));
-        g.fillRoundedRectangle (b.reduced (0.5f), 14.0f);
-        g.setColour (colour::line);
-        g.drawRoundedRectangle (b.reduced (0.5f), 14.0f, 1.0f);
+        juce::Path p;
+        for (int k = 0; k <= 40; ++k)
+        {
+            const float a = (float) k / 40.0f * juce::MathConstants<float>::twoPi;
+            const float r = radius + wobble * (std::sin (3.0f * a + 1.1f * t) + 0.7f * std::sin (5.0f * a - 0.8f * t + 1.0f)
+                                               + 0.5f * std::sin (2.0f * a + 0.5f * t + 4.0f));
+            const juce::Point<float> q { c.x + r * std::cos (a), c.y + r * std::sin (a) };
+            if (k == 0)
+                p.startNewSubPath (q);
+            else
+                p.lineTo (q);
+        }
+        p.closeSubPath();
+        return p;
     }
 } // namespace
 
 //==============================================================================
-ThrowPad::ThrowPad (DendriteProcessor& p)
+Soma::Soma (DendriteProcessor& p)
     : processor (p),
-      link (*p.params.getParameter ("throw"), [this] (float v) { held = v > 0.5f; repaint(); })
+      link (*p.params.getParameter ("throw"), [this] (float v) { held = v > 0.5f; })
 {
     link.sendInitialUpdate();
-    halo = makeGlow (colour::ochreHot, 128);
+    halo = makeGlow (colour::ink, 128);
     setMouseCursor (juce::MouseCursor::PointingHandCursor);
 }
 
-void ThrowPad::tick()
+bool Soma::hitTest (int x, int y)
 {
+    return getLocalBounds().toFloat().getCentre().getDistanceFrom ({ (float) x, (float) y }) < 28.0f;
+}
+
+void Soma::tick (double t)
+{
+    now = t;
     const float target = std::max (held ? 1.0f : 0.0f, processor.display.throwing.load (std::memory_order_relaxed));
     glow += (target - glow) * (target > glow ? 0.5f : 0.08f);
     repaint();
 }
 
-void ThrowPad::paint (juce::Graphics& g)
+void Soma::paint (juce::Graphics& g)
 {
-    const auto b = getLocalBounds().toFloat();
-    panel (g, b);
+    const auto c = getLocalBounds().toFloat().getCentre();
+    const float t = (float) now;
+    const float r = 15.0f + 4.0f * glow;
 
-    g.setColour (colour::inkDim);
-    g.setFont (fonts->make (fonts->medium, 13.0f, 0.05f));
-    g.drawText ("throw", b.reduced (18.0f, 14.0f).removeFromTop (18.0f), juce::Justification::centredLeft);
-    g.setColour (colour::inkFaint);
-    g.setFont (fonts->make (fonts->regular, 11.5f, 0.02f));
-    g.drawText ("into the echo", b.reduced (18.0f, 14.0f).removeFromTop (18.0f), juce::Justification::centredRight);
+    g.setOpacity (0.08f + 0.9f * glow);
+    g.drawImage (halo, juce::Rectangle<float> (r * 5.0f, r * 5.0f).withCentre (c));
 
-    const float d = std::min (b.getWidth(), b.getHeight() - 40.0f) - 44.0f;
-    const auto c = b.getCentre().translated (0.0f, 10.0f);
-    const auto disc = juce::Rectangle<float> (d, d).withCentre (c);
-
-    g.setOpacity (0.15f + 0.85f * glow);
-    g.drawImage (halo, disc.expanded (d * 0.35f));
-
-    // a well in the stone
-    g.setGradientFill (juce::ColourGradient (colour::stone0, c.x, c.y - d * 0.5f, colour::stone2, c.x, c.y + d * 0.5f, false));
-    g.fillEllipse (disc);
-    if (glow > 0.01f)
-    {
-        juce::ColourGradient lit (colour::ink.withAlpha (0.9f * glow), c.x, c.y, colour::ochre.withAlpha (0.25f * glow), c.x + d * 0.5f, c.y, true);
-        g.setGradientFill (lit);
-        g.fillEllipse (disc.reduced (3.0f));
-    }
-    g.setColour ((pressed ? colour::ochreHot : colour::line2).interpolatedWith (colour::ochreHot, glow));
-    g.drawEllipse (disc, 1.2f + 1.2f * glow);
-    g.setColour (colour::line.withAlpha (0.8f));
-    g.drawEllipse (disc.reduced (10.0f), 1.0f);
-
-    g.setColour (colour::ink.interpolatedWith (colour::stone0, 0.85f * glow));
-    g.setFont (fonts->make (fonts->light, 24.0f, 0.06f));
-    g.drawText ("hold", disc, juce::Justification::centred);
+    // the cell: a dim body with a nucleus that lights when you hold it
+    const auto body = membrane (c, r, t, 0.9f + 0.6f * glow);
+    g.setGradientFill (juce::ColourGradient (colour::ink.withAlpha (0.06f + 0.75f * glow), c.x, c.y,
+                                             colour::ink.withAlpha (0.0f), c.x + r, c.y, true));
+    g.fillPath (body);
+    g.setColour (colour::ink.withAlpha (0.35f + 0.6f * glow));
+    g.strokePath (body, juce::PathStrokeType (1.0f));
+    g.setColour (colour::ink.withAlpha (0.5f + 0.5f * glow));
+    g.fillPath (membrane (c.translated (1.5f * std::sin (0.4f * t), 1.0f * std::cos (0.3f * t)), 3.5f + 2.0f * glow, t * 1.7f, 0.4f));
 }
 
-void ThrowPad::mouseDown (const juce::MouseEvent&)
+void Soma::mouseDown (const juce::MouseEvent&)
 {
-    pressed = true;
     link.setValueAsCompleteGesture (1.0f);
 }
 
-void ThrowPad::mouseUp (const juce::MouseEvent&)
+void Soma::mouseUp (const juce::MouseEvent&)
 {
-    pressed = false;
     link.setValueAsCompleteGesture (0.0f);
 }
 
-void ThrowPad::mouseEnter (const juce::MouseEvent&)
-{
-    if (onHint)
-        onHint ("hold to throw what's playing into the echo. map \"throw\" to a pad or key in Live");
-}
-
-void ThrowPad::mouseExit (const juce::MouseEvent&)
-{
-    if (onHint)
-        onHint ({});
-}
-
 //==============================================================================
-ItchPanel::ItchPanel (DendriteProcessor& p)
+ItchStrip::ItchStrip (DendriteProcessor& p)
     : processor (p),
-      link (*p.params.getParameter ("frames"), [this] (float v) { choice = juce::roundToInt (v); repaint(); })
+      link (*p.params.getParameter ("frames"), [this] (float v) { choice = juce::roundToInt (v); })
 {
     link.sendInitialUpdate();
     lampGlow = makeGlow (colour::coral, 64);
 }
 
-void ItchPanel::tick()
+void ItchStrip::tick()
 {
     auto& d = processor.display;
     repetition += (d.repetition.load (std::memory_order_relaxed) - repetition) * 0.2f;
     progress = d.frameProgress.load (std::memory_order_relaxed);
-    boredom = d.boredom.load (std::memory_order_relaxed);
-    itching = d.itching.load (std::memory_order_relaxed);
     for (size_t k = 0; k < (size_t) heads; ++k)
     {
         const float target = d.lamps[k].load (std::memory_order_relaxed);
         lamps[k] += (target - lamps[k]) * (target > lamps[k] ? 0.6f : 0.12f);
     }
+    reveal += ((hovering || dragging ? 1.0f : 0.0f) - reveal) * 0.15f;
     repaint();
 }
 
-juce::Rectangle<float> ItchPanel::cellArea() const
+juce::Rectangle<float> ItchStrip::dotsArea() const
 {
-    return getLocalBounds().toFloat().reduced (16.0f, 0.0f).withTrimmedTop (42.0f).withHeight (30.0f);
+    return { dotsLeft, 0.0f, 12.0f * 22.0f, (float) getHeight() };
 }
 
-int ItchPanel::cellAt (juce::Point<float> p) const
+juce::Point<float> ItchStrip::dot (int k) const
 {
-    const auto a = cellArea();
-    return std::clamp ((int) std::floor ((p.x - a.getX()) / a.getWidth() * (float) dendrite::Engine::frameChoices), 0,
-                       dendrite::Engine::frameChoices - 1);
+    const auto a = dotsArea();
+    return { a.getX() + 11.0f + 22.0f * (float) k, a.getCentreY() + 2.0f };
 }
 
-void ItchPanel::paint (juce::Graphics& g)
+int ItchStrip::dotAt (juce::Point<float> p) const
 {
-    const auto b = getLocalBounds().toFloat();
-    panel (g, b);
+    const auto a = dotsArea();
+    return std::clamp ((int) std::floor ((p.x - a.getX()) / 22.0f), 0, cells - 1);
+}
 
-    auto top = b.reduced (18.0f, 14.0f).removeFromTop (18.0f);
-    g.setColour (colour::inkDim);
-    g.setFont (fonts->make (fonts->medium, 13.0f, 0.05f));
-    g.drawText ("itch", top, juce::Justification::centredLeft);
+void ItchStrip::paint (juce::Graphics& g)
+{
+    const float y = dot (0).y;
+
+    // the name, and nothing else
+    g.setColour (colour::ink.withAlpha (0.55f));
+    g.setFont (fonts->make (fonts->light, 19.0f, 0.06f));
+    g.drawText ("dendrite", juce::Rectangle<float> (30.0f, y - 14.0f, 150.0f, 26.0f), juce::Justification::centredLeft);
+
     g.setColour (colour::inkFaint);
-    g.setFont (fonts->make (fonts->regular, 11.5f, 0.02f));
-    const auto names = DendriteProcessor::itchNames;
-    g.drawText (choice == 0 ? juce::String ("never itches") : "after " + names[choice] + " of the same", top,
-                juce::Justification::centredRight);
+    g.setFont (fonts->make (fonts->regular, 11.5f, 0.08f));
+    g.drawText ("itch", juce::Rectangle<float> (dotsLeft - 44.0f, y - 9.0f, 40.0f, 18.0f), juce::Justification::centredLeft);
 
-    // the frame: drag across
-    const auto a = cellArea();
-    const float w = a.getWidth() / (float) dendrite::Engine::frameChoices;
-    juce::Path track;
-    track.addRoundedRectangle (a, 8.0f);
-    g.setColour (colour::stone0.withAlpha (0.7f));
-    g.fillPath (track);
-    g.setColour (colour::line);
-    g.strokePath (track, juce::PathStrokeType (1.0f));
-    for (int k = 0; k < dendrite::Engine::frameChoices; ++k)
-    {
-        const auto cell = juce::Rectangle<float> (a.getX() + (float) k * w, a.getY(), w, a.getHeight());
-        if (k == choice)
-        {
-            g.setColour ((k == 0 ? colour::inkFaint : colour::coral).withAlpha (0.9f));
-            g.fillRoundedRectangle (cell.reduced (2.0f), 6.0f);
-        }
-        g.setColour (k == choice ? colour::stone0 : colour::inkDim);
-        g.setFont (fonts->make (k == choice ? fonts->medium : fonts->regular, 12.5f));
-        g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), cell, juce::Justification::centred);
-    }
-
-    // listening: the bar fills through the frame, brighter the more it repeats
-    const auto meter = b.reduced (18.0f, 0.0f).withTrimmedTop (88.0f).withHeight (16.0f);
-    g.setColour (colour::inkFaint);
-    g.setFont (fonts->make (fonts->regular, 11.0f, 0.02f));
-    g.drawText (choice == 0 ? "off" : (itching ? "itching" : (repetition > 0.72f ? "restless" : "listening")),
-                meter.withWidth (64.0f), juce::Justification::centredLeft);
-    const auto bar = meter.withTrimmedLeft (68.0f).withSizeKeepingCentre (meter.getWidth() - 68.0f, 4.0f);
-    g.setColour (colour::stone0);
-    g.fillRoundedRectangle (bar, 2.0f);
+    // the frame it listens through fills along the line, warmer as the music repeats
+    const float x0 = dot (0).x, x1 = dot (cells - 1).x;
+    g.setColour (colour::line2.withAlpha (0.6f));
+    g.drawLine (x0, y, x1, y, 0.6f);
     if (choice > 0)
     {
-        g.setColour (colour::coral.withAlpha (0.18f + 0.82f * juce::jlimit (0.0f, 1.0f, (repetition - 0.3f) / 0.6f)));
-        g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * progress), 2.0f);
-        for (int k = 0; k < 3; ++k) // how many frames in a row it has been the same
+        const float heat = juce::jlimit (0.0f, 1.0f, (repetition - 0.3f) / 0.6f);
+        g.setColour (colour::coral.withAlpha (0.15f + 0.6f * heat));
+        g.drawLine (x0, y, x0 + (x1 - x0) * progress, y, 1.0f);
+    }
+
+    for (int k = 0; k < cells; ++k)
+    {
+        const auto p = dot (k);
+        const bool chosen = k == choice;
+        if (chosen)
         {
-            g.setColour (boredom * 3.0f > (float) k + 0.5f ? colour::coral : colour::line2);
-            g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre ({ bar.getRight() - 4.0f - 8.0f * (float) k, bar.getY() - 8.0f }));
+            g.setOpacity (k == 0 ? 0.15f : 0.5f);
+            g.drawImage (lampGlow, juce::Rectangle<float> (26.0f, 26.0f).withCentre (p));
+            g.setColour (k == 0 ? colour::inkDim : colour::coral);
+            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (p));
+        }
+        else
+        {
+            g.setColour (colour::inkFaint.withAlpha (0.8f));
+            g.fillEllipse (juce::Rectangle<float> (2.4f, 2.4f).withCentre (p));
+        }
+
+        // the lengths show while you reach for them; otherwise only the chosen one
+        const float alpha = chosen ? 0.9f : 0.55f * reveal;
+        if (alpha > 0.02f)
+        {
+            g.setColour ((chosen && k > 0 ? colour::coral : colour::inkDim).withAlpha (alpha));
+            g.setFont (fonts->make (chosen ? fonts->medium : fonts->regular, 11.5f));
+            g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), juce::Rectangle<float> (22.0f, 14.0f).withCentre (p.translated (0.0f, -15.0f)),
+                        juce::Justification::centred);
         }
     }
 
-    // the heads
-    const auto row = b.reduced (12.0f, 0.0f).withTrimmedTop (114.0f).withHeight (56.0f);
-    const float cw = row.getWidth() / (float) heads;
-    for (int k = 0; k < heads; ++k)
+    // the heads: five lamps; a name appears only while its head plays
+    if (! headsArea.isEmpty())
     {
-        const auto col = juce::Rectangle<float> (row.getX() + (float) k * cw, row.getY(), cw, row.getHeight());
-        const auto c = juce::Point<float> (col.getCentreX(), col.getY() + 14.0f);
-        const float lit = lamps[k];
-        g.setOpacity (lit);
-        g.drawImage (lampGlow, juce::Rectangle<float> (40.0f + 20.0f * lit, 40.0f + 20.0f * lit).withCentre (c));
-        g.setColour (colour::stone0);
-        g.fillEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (c));
-        g.setColour (colour::line2.interpolatedWith (colour::coral, lit));
-        g.drawEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (c), 1.2f);
-        g.setColour (colour::coral.withAlpha (lit));
-        g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c));
-        g.setColour (colour::inkFaint.interpolatedWith (colour::ink, lit));
-        g.setFont (fonts->make (fonts->regular, 11.5f, 0.02f));
-        g.drawText (headNames[k], col.withTrimmedTop (28.0f).withHeight (16.0f), juce::Justification::centred);
+        const float cw = headsArea.getWidth() / (float) heads;
+        for (int k = 0; k < heads; ++k)
+        {
+            const juce::Point<float> c { headsArea.getX() + cw * ((float) k + 0.5f), y };
+            const float lit = lamps[k];
+            g.setOpacity (lit);
+            g.drawImage (lampGlow, juce::Rectangle<float> (30.0f + 24.0f * lit, 30.0f + 24.0f * lit).withCentre (c));
+            g.setColour (colour::line2.interpolatedWith (colour::coral, lit));
+            g.drawEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c), 0.9f);
+            g.setColour (colour::coral.withAlpha (lit));
+            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (c));
+            const float nameAlpha = std::max (lit, 0.5f * reveal);
+            if (nameAlpha > 0.02f)
+            {
+                g.setColour (colour::inkDim.interpolatedWith (colour::coral, lit).withAlpha (nameAlpha));
+                g.setFont (fonts->make (fonts->regular, 11.0f, 0.04f));
+                g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 16.0f)),
+                            juce::Justification::centred);
+            }
+        }
     }
 }
 
-void ItchPanel::mouseDown (const juce::MouseEvent& e)
+void ItchStrip::mouseDown (const juce::MouseEvent& e)
 {
-    if (! cellArea().expanded (0.0f, 8.0f).contains (e.position))
+    if (! dotsArea().expanded (4.0f, 0.0f).contains (e.position))
         return;
     dragging = true;
     link.beginGesture();
-    link.setValueAsPartOfGesture ((float) cellAt (e.position));
+    link.setValueAsPartOfGesture ((float) dotAt (e.position));
 }
 
-void ItchPanel::mouseDrag (const juce::MouseEvent& e)
+void ItchStrip::mouseDrag (const juce::MouseEvent& e)
 {
     if (dragging)
-        link.setValueAsPartOfGesture ((float) cellAt (e.position));
+        link.setValueAsPartOfGesture ((float) dotAt (e.position));
 }
 
-void ItchPanel::mouseUp (const juce::MouseEvent&)
+void ItchStrip::mouseUp (const juce::MouseEvent&)
 {
     if (dragging)
         link.endGesture();
     dragging = false;
 }
 
-void ItchPanel::mouseMove (const juce::MouseEvent& e)
+void ItchStrip::mouseMove (const juce::MouseEvent& e)
 {
-    const bool overCells = cellArea().expanded (0.0f, 8.0f).contains (e.position);
-    setMouseCursor (overCells ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
-    if (onHint)
-        onHint ("drag to choose how long dendrite can stand the same thing. when it can't, its heads play");
+    hovering = true;
+    const bool over = dotsArea().expanded (4.0f, 0.0f).contains (e.position);
+    setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
-void ItchPanel::mouseExit (const juce::MouseEvent&)
+void ItchStrip::mouseExit (const juce::MouseEvent&)
 {
-    if (onHint)
-        onHint ({});
+    hovering = false;
 }
 } // namespace dendrite::ui
