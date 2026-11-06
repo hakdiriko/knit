@@ -123,5 +123,18 @@ int main (int argc, char** argv)
         }
     }
     editor->animateTo (t + 0.001);
+    if (env ("DENDRITE_TIME").isNotEmpty())
+    {
+        // how long one frame of the window takes to tick and paint, in software
+        juce::Image img (juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+        const double start = juce::Time::getMillisecondCounterHiRes();
+        for (int k = 0; k < 120; ++k)
+        {
+            editor->animateTo (t + 0.001 + k / 60.0);
+            juce::Graphics g (img);
+            editor->paintEntireComponent (g, true);
+        }
+        std::printf ("%.2f ms per frame\n", (juce::Time::getMillisecondCounterHiRes() - start) / 120.0);
+    }
     return writePng (*editor, juce::File { juce::String (argv[2]) }, 2.0f) ? 0 : 3;
 }

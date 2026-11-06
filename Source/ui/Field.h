@@ -89,10 +89,17 @@ private:
         uint8_t depth = 0;
         uint16_t order = 0;
     };
+    struct LitFibre
+    {
+        juce::Line<float> line;
+        juce::Colour colour;
+        float width = 1.0f;
+    };
     struct Spark
     {
         int strand = -1, fibre = -1;
         float along = 0.0f, speed = 100.0f, level = 0.5f;
+        bool itch = false; // impulses run coral while the itch plays
     };
 
     juce::Rectangle<float> inner() const;
@@ -133,6 +140,7 @@ private:
     std::vector<Strand> strands;
     std::vector<Fibre> fibres;
     std::vector<Spark> sparks;
+    juce::Array<LitFibre> lit;
     double nextSpark = 0.0;
 
     // the itch heads' own growth
@@ -140,9 +148,10 @@ private:
     int screamTip = -1, laughTip = -1, manipulateLast = -1;
     juce::Point<float> manipulateCentre;
     float screamAngle = 0.0f, manipulateAngle = 0.0f, manipulateRadius = 0.0f, manipulateTurn = 1.0f, laughSide = 1.0f;
-    double lastScream = 0.0, lastManipulate = 0.0, lastSwarm = 0.0, lastGhost = 0.0;
+    double lastScream = 0.0, lastManipulate = 0.0, lastSwarm = 0.0, lastGhost = 0.0, ghostStart = 0.0;
+    float screamTurn = 1.0f, ghostSide = 1.0f;
 
-    juce::Image glowOchre, glowIvory, glowCoral, glowCool, vignette;
+    juce::Image glowOchre, glowIvory, glowCoral, glowCool;
     juce::Point<float> lastLight, lightStep, lastMouse, touch;
     float lightSpeed = 0.0f;
     bool dragging = false, hovering = false, touching = false, throwHeld = false, grabbedLight = false;

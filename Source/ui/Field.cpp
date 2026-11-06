@@ -83,28 +83,6 @@ void Field::resized()
     if (w <= 0 || h <= 0)
         return;
 
-    // the edges sink into the black, so the field has no frame
-    vignette = juce::Image (juce::Image::ARGB, w, h, true);
-    {
-        juce::Graphics g (vignette);
-        const auto b = getLocalBounds().toFloat();
-        const float edge = 70.0f;
-        auto band = [&] (juce::Rectangle<float> r, juce::Point<float> from, juce::Point<float> to) {
-            g.setGradientFill (juce::ColourGradient (colour::black, from, colour::black.withAlpha (0.0f), to, false));
-            g.fillRect (r);
-        };
-        band (b.withHeight (edge), { 0.0f, 0.0f }, { 0.0f, edge });
-        const float floor = b.getBottom() - stripHeight + 6.0f;
-        g.setColour (colour::black);
-        g.fillRect (b.withTop (floor));
-        band (b.withTop (floor - edge).withHeight (edge), { 0.0f, floor }, { 0.0f, floor - edge });
-        band (b.withWidth (edge), { 0.0f, 0.0f }, { edge, 0.0f });
-        band (b.withTrimmedLeft (b.getWidth() - edge), { b.getRight(), 0.0f }, { b.getRight() - edge, 0.0f });
-        g.setGradientFill (juce::ColourGradient (colour::black.withAlpha (0.0f), b.getCentreX(), b.getCentreY(),
-                                                 colour::black.withAlpha (0.3f), b.getX(), b.getY(), true));
-        g.fillRect (b);
-    }
-
     lastLight = light();
     for (auto& s : strands)
         seedStrand (s, now, true);
@@ -220,14 +198,17 @@ void Field::tickTissue (double t, float dt)
     const float out = d.outLevel.load (std::memory_order_relaxed);
     if (t >= nextSpark && sparks.size() < maxSparks)
     {
-        const float rate = 0.35f + 7.0f * std::min (1.0f, 3.0f * out);
+        float itchLit = 0.0f;
+        for (const auto& lamp : d.lamps)
+            itchLit = std::max (itchLit, lamp.load (std::memory_order_relaxed));
+        const float rate = 0.35f + 7.0f * std::min (1.0f, 3.0f * out) + 10.0f * throwGlow + 8.0f * itchLit;
         nextSpark = t - std::log (std::max (1.0e-4f, random.nextFloat())) / rate;
         const int si = random.nextInt (strandCount);
         const auto& s = strands[(size_t) si];
         const float grown = grownOrder (t - s.born, s.life, s.growIn, s.maxOrder);
         const int fi = s.count > 1 ? 1 + random.nextInt (s.count - 1) : 0;
         if (fi > 0 && (float) fibres[(size_t) (s.first + fi)].order <= grown)
-            sparks.push_back ({ si, fi, 0.0f, 40.0f + 110.0f * random.nextFloat(), 0.4f + 0.6f * random.nextFloat() });
+            sparks.push_back ({ si, fi, 0.0f, 40.0f + 110.0f * random.nextFloat(), 0.4f + 0.6f * random.nextFloat(), itchLit > 0.1f });
     }
 
     for (size_t i = 0; i < sparks.size();)
@@ -263,15 +244,17 @@ void Field::paintTissue (juce::Graphics& g)
 {
     const auto lp = light();
     const float reveal = 0.3f + 0.7f * pointGlow;
+    const float breathe = 0.85f + 0.3f * processor.display.breath.load (std::memory_order_relaxed);
     const float sigma2 = 2.0f * 95.0f * 95.0f;
     juce::Path paths[3];
+    lit.clearQuick();
     for (const auto& s : strands)
     {
         const double age = now - s.born;
         if (age < 0.0 || s.count < 2)
             continue;
         const float grown = grownOrder (age, s.life, s.growIn, s.maxOrder);
-        const float alpha = s.brightness * std::min (1.0f, (float) age / 3.0f);
+        const float alpha = s.brightness * std::min (1.0f, (float) age / 3.0f) * breathe;
         if (alpha < 0.005f)
             continue;
         for (auto& p : paths)
@@ -298,8 +281,8 @@ void Field::paintTissue (juce::Graphics& g)
                 const float boost = std::exp (-d2 / sigma2) * reveal;
                 if (boost > 0.03f)
                 {
-                    g.setColour (s.colour.interpolatedWith (colour::ochreHot, 0.5f).withAlpha (std::min (0.8f, boost * (0.25f + 1.6f * s.brightness))));
-                    g.drawLine ({ a, e }, f.depth == 0 ? 1.3f : (f.depth == 1 ? 0.95f : 0.7f));
+                    lit.add ({ { a, e }, s.colour.interpolatedWith (colour::ochreHot, 0.5f).withAlpha (std::min (0.8f, boost * (0.25f + 1.6f * s.brightness))),
+                               f.depth == 0 ? 1.3f : (f.depth == 1 ? 0.95f : 0.7f) });
                 }
             }
         }
@@ -313,6 +296,12 @@ void Field::paintTissue (juce::Graphics& g)
         }
     }
 
+    for (const auto& l : lit)
+    {
+        g.setColour (l.colour);
+        g.drawLine (l.line, l.width);
+    }
+
     for (const auto& sp : sparks)
     {
         const auto& s = strands[(size_t) sp.strand];
@@ -323,7 +312,7 @@ void Field::paintTissue (juce::Graphics& g)
         const auto p = a + (e - a) * sp.along;
         const float fade = std::min (1.0f, (float) (now - s.born) / 3.0f) * sp.level;
         g.setOpacity (0.55f * fade);
-        g.drawImage (glowOchre, juce::Rectangle<float> (12.0f, 12.0f).withCentre (p));
+        g.drawImage (sp.itch ? glowCoral : glowOchre, juce::Rectangle<float> (12.0f, 12.0f).withCentre (p));
         g.setColour (colour::ink.withAlpha (0.7f * fade));
         g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre (p));
     }
@@ -534,11 +523,13 @@ void Field::growHeads (double t)
         {
             screamTip = -1;
             screamAngle = -0.5f * pi + gauss() * 0.6f;
+            screamTurn = random.nextBool() ? 1.0f : -1.0f;
         }
         if (t - lastScream > 0.03 + 0.03 * random.nextFloat())
         {
             lastScream = t;
-            screamAngle += gauss() * 0.5f + (-0.5f * pi - screamAngle) * 0.12f;
+            // it circles your head as it rises: the tendril curls round while it climbs
+            screamAngle += screamTurn * (0.22f + 0.2f * lamp[0]) + gauss() * 0.35f;
             screamTip = chain (screamTip, lp, screamAngle, (5.0f + 8.0f * random.nextFloat()) * (0.6f + lamp[0]),
                                0.35f + 0.65f * lamp[0], 1.6f + 0.8f * random.nextFloat(), screamKind);
         }
@@ -588,17 +579,19 @@ void Field::growHeads (double t)
         }
     }
 
-    // swarm: a cloud of tiny sparks buzzing around the light
+    // swarm: scattered grains that close in on the light as they lock into step
     if (lamp[3] > 0.04f && t - lastSwarm > 0.016)
     {
         lastSwarm = t;
+        const float lock = std::clamp ((lamp[3] - 0.25f) / 0.75f, 0.0f, 1.0f);
         const int n = 1 + random.nextInt (3 + (int) (4.0f * lamp[3]));
         for (int k = 0; k < n; ++k)
         {
             const float a = random.nextFloat() * juce::MathConstants<float>::twoPi;
-            const float r = 14.0f + 80.0f * std::pow (random.nextFloat(), 0.7f);
+            const float r = (10.0f + 110.0f * (1.0f - lock)) * (0.4f + 0.6f * std::sqrt (random.nextFloat()));
+            const juce::Point<float> offset { std::cos (a) * r, std::sin (a) * r };
             Joint j;
-            j.p = j.home = lp + juce::Point<float> (std::cos (a), std::sin (a)) * r;
+            j.p = j.home = lp + offset;
             j.parent = rooted;
             j.level = (0.3f + 0.7f * lamp[3]) * (0.4f + 0.6f * random.nextFloat());
             j.life = 0.25f + 0.5f * random.nextFloat();
@@ -606,18 +599,28 @@ void Field::growHeads (double t)
             j.twig = true;
             j.born = t;
             const int i = addJoint (j);
-            if (i >= 0)
-                joints[(size_t) i].prev = j.p - juce::Point<float> (gauss(), gauss()) * 1.6f; // a buzz
+            if (i >= 0) // a buzz, drawn inward as the grains lock
+                joints[(size_t) i].prev = j.p + offset * (0.02f + 0.04f * lock) - juce::Point<float> (gauss(), gauss()) * (1.6f * (1.0f - lock));
         }
     }
 
     // ghost: pale strands float up from the light and hang there
+    if (lamp[4] > 0.04f && lastLamp[4] <= 0.04f)
+    {
+        ghostStart = t;
+        ghostSide = random.nextBool() ? 1.0f : -1.0f;
+    }
     if (lamp[4] > 0.04f && t - lastGhost > 0.07 + 0.06 * random.nextFloat())
     {
         lastGhost = t;
         int tip = -1;
         float angle = -0.5f * pi + gauss() * 0.7f;
-        const auto start = lp + juce::Point<float> (gauss(), gauss()) * 18.0f;
+        // a whisper at one ear passing behind your head to the other: the strands rise
+        // from one side of the light, then from above it, then from the other side
+        const float pass = std::clamp ((float) (t - ghostStart) / 2.0f, 0.0f, 1.0f);
+        const float around = pi * pass;
+        const auto start = lp + juce::Point<float> (ghostSide * 70.0f * std::cos (around), -30.0f * std::sin (around))
+                           + juce::Point<float> (gauss(), gauss()) * 10.0f;
         for (int k = 0, n = 2 + random.nextInt (4); k < n; ++k)
         {
             tip = chain (tip, start, angle, 9.0f + 14.0f * random.nextFloat(), (0.2f + 0.4f * lamp[4]), 3.0f + 2.0f * random.nextFloat(), ghostKind);
@@ -764,16 +767,14 @@ void Field::paintGrowth (juce::Graphics& g)
             if (j.kind == ghostKind)
                 width *= 0.6f;
             g.setColour (c.withAlpha (std::min (1.0f, alpha * 0.95f)));
-            if (len < 6.0f)
+            // a few straight pieces along the curve: native lines are cheap on every renderer
+            const int pieces = len < 8.0f ? 1 : (len < 30.0f ? 3 : 5);
+            auto from = a;
+            for (int k = 1; k <= pieces; ++k)
             {
-                g.drawLine ({ a, tip }, width);
-            }
-            else
-            {
-                juce::Path path;
-                path.startNewSubPath (a);
-                path.quadraticTo (a + (ctrl - a) * grow, tip);
-                g.strokePath (path, juce::PathStrokeType (width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                const auto to = quad (a, ctrl, j.p, grow * (float) k / (float) pieces);
+                g.drawLine ({ from, to }, width);
+                from = to;
             }
             if (! j.twig && grow >= 1.0f) // a small bead where it forks on
             {
@@ -857,17 +858,6 @@ void Field::tick (double t)
 
     growHeads (t);
     simulate (dt * 60.0f);
-    if (std::getenv ("DENDRITE_DEBUG") != nullptr)
-    {
-        int counts[8] {}, links = 0;
-        for (auto& j : joints)
-            if (j.alive) { counts[j.kind]++; links += j.parent >= 0 ? 1 : 0; }
-        float ratio = 0.0f, lev = 0.0f; int n = 0;
-        for (auto& j : joints)
-            if (j.alive && j.parent >= 0) { Joint* q = nullptr; if (parentOf (j, q)) { ratio += j.p.getDistanceFrom (q->p) / std::max (0.1f, j.rest); lev += j.level; ++n; } }
-        std::printf ("ratio %.2f level %.2f ", n ? ratio / n : 0.0f, n ? lev / n : 0.0f);
-        std::printf ("%.2f echo %d throw %d heads %d %d %d %d %d links %d due %d\n", t, counts[0], counts[1], counts[2], counts[3], counts[4], counts[5], counts[6], links, (int) due.size());
-    }
     tickTissue (t, dt);
 
     const float target = dragging || hovering ? 1.0f : 0.0f;
@@ -890,7 +880,24 @@ void Field::paint (juce::Graphics& g)
     paintTissue (g);
     paintGrowth (g);
     g.setOpacity (1.0f);
-    g.drawImageAt (vignette, 0, 0);
+
+    // the edges sink into the black, so the field has no frame (drawn as gradients: cheaper
+    // than a full-window image when the window is scaled)
+    {
+        const auto b = getLocalBounds().toFloat();
+        const float edge = 70.0f;
+        auto band = [&] (juce::Rectangle<float> r, juce::Point<float> from, juce::Point<float> to) {
+            g.setGradientFill (juce::ColourGradient (colour::black, from, colour::black.withAlpha (0.0f), to, false));
+            g.fillRect (r);
+        };
+        const float floor = b.getBottom() - stripHeight + 6.0f;
+        band (b.withHeight (edge), { 0.0f, 0.0f }, { 0.0f, edge });
+        band (b.withTop (floor - edge).withHeight (edge), { 0.0f, floor }, { 0.0f, floor - edge });
+        band (b.withWidth (edge).withBottom (floor), { 0.0f, 0.0f }, { edge, 0.0f });
+        band (b.withTrimmedLeft (b.getWidth() - edge).withBottom (floor), { b.getRight(), 0.0f }, { b.getRight() - edge, 0.0f });
+        g.setColour (colour::black);
+        g.fillRect (b.withTop (floor));
+    }
 
     // a nerve carries the throw to the light: from your touch, or from the soma
     const bool fromTouch = throwStyle == ThrowStyle::tissue && touchGlow > 0.01f;
