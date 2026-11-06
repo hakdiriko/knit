@@ -16,6 +16,17 @@ What you wrote in the review checklist, and what changed in the sound:
 - **Shorter itch lengths.** ¼, ½ and ¾ bar join 1, 1¼, 1½, 1¾, 2, 3, 4 and 8 (default 4). With short lengths there is always at least a bar of quiet after each itch.
 - Sets saved with 1.0 open with itch at its default (4 bars). Everything else keeps its settings.
 
+And in the window and the manual:
+
+- **True black, like the inside of a brain.** No panels or frames: the field is the whole window and its edges sink into black. Behind it, living tissue: strands grow in, sway, pull back after a minute or so and are replaced, and impulses run along them, more of them when the echo is loud, when you throw (warm) and when it itches (coral).
+- **Dragging pulls something.** Every hit grows a dendrite with its own temper. The young ones hang on the light and trail behind when you drag; the old ones root, stretch thin, peel off and stay where you left them.
+- **throw has no button.** Grab the light to move it; touch anywhere else in the dark to throw, and a nerve runs from your finger to the light. `throw` is still there to map to a key in Live.
+- **Each head leaves its own trace:** scream a coral tendril circling as it climbs, laugh twigs from side to side, manipulate a spiral, swarm grains that close in on the light, ghost pale strands passing from one side to the other.
+- **Much less text.** The name, "itch" with its length, the head names only while they play, and two words under the light while you touch it.
+- **The manual** is rewritten on true black, lowercase, about half the words. Launch copy for Corpus is ready too.
+
+Checked: pluginval strictness 10, discovery audit 0 FAIL / 0 WARN, mono residual −130 to −139 dB.
+
 ## 1.0.0 (dendrite, finished: a dub echo that grows around your head)
 
 A new instrument, built from what survived every test: the dotted dub echo of 0.5, the breathing you liked, the mono-safe space you asked for after the stab test, and the three heads of the hypnagogic demo. Four controls, a window to play, and a one-page manual in every download.
