@@ -3,7 +3,7 @@
 // 32-bit float WAV. Used for sketches and measurements.
 //
 //   g++ -O2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp -o build/render
-//   build/render in.wav out.wav [--feed 0.5] [--space 0.4] [--itch 7] [--bpm 120]
+//   build/render in.wav out.wav [--feed 0.5] [--space 0.4] [--itch 10] [--bpm 120]
 //                [--throw start:end (seconds, repeatable)] [--stopped] [--tail seconds]
 //                [--sweep feed|space from to]  (moves a control linearly over the file)
 #include "dsp/Engine.h"
@@ -124,7 +124,7 @@ int main (int argc, char** argv)
         return 1;
     }
     float feed = 0.5f, space = 0.4f, tail = 0.0f, sweepFrom = 0.0f, sweepTo = 0.0f;
-    int itch = 7;
+    int itch = dendrite::Engine::defaultFrame;
     double bpm = 120.0;
     bool playing = true;
     std::string sweep;

@@ -48,6 +48,10 @@ private:
 class Heads
 {
 public:
+    // The window reads these: how many heads there are and what they are called.
+    static constexpr int count = 5;
+    static constexpr const char* names[count] = { "scream", "laugh", "manipulate", "swarm", "ghost" };
+
     void prepare (float sampleRate);
     void reset();
 
@@ -64,7 +68,7 @@ public:
     // (toTape), and how far they turn the echo's space this sample.
     void process (float& outM, float& outS, float& tapeM, float& tapeS, float& turn) noexcept;
 
-    float lamp (int head) const noexcept { return lamps[(size_t) std::clamp (head, 0, 2)]; }
+    float lamp (int head) const noexcept { return lamps[(size_t) std::clamp (head, 0, count - 1)]; }
 
 private:
     struct Window
@@ -95,7 +99,7 @@ private:
 
     double clock = -1.0, end = 0.0;
     float strength = 0.0f;
-    std::array<float, 3> lamps {};
+    std::array<float, count> lamps {};
 
     // scream
     Window screamWin;

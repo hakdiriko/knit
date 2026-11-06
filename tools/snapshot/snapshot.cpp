@@ -31,7 +31,7 @@ int main (int argc, char** argv)
     processor.prepareToPlay (reader->sampleRate, 512);
     processor.params.getParameter ("feed")->setValueNotifyingHost (feed);
     processor.params.getParameter ("space")->setValueNotifyingHost (space);
-    processor.params.getParameter ("frame")->setValueNotifyingHost (processor.params.getParameter ("frame")->convertTo0to1 ((float) itch));
+    processor.params.getParameter ("frames")->setValueNotifyingHost (processor.params.getParameter ("frames")->convertTo0to1 ((float) itch));
 
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditor());
     auto* editor = dynamic_cast<DendriteEditor*> (base.get());

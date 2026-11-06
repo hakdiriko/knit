@@ -181,7 +181,7 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
     state.frameProgress = (float) (std::fmod (std::max (0.0, beat), frameBeats) / frameBeats);
     state.boredom = std::min (1.0f, (float) boredFrames / 3.0f);
     state.itching = heads.busy();
-    for (int h = 0; h < 3; ++h)
+    for (int h = 0; h < Heads::count; ++h)
         state.lamps[(size_t) h] = heads.lamp (h);
     state.bpm = bpm;
     state.hostPlaying = time.playing;

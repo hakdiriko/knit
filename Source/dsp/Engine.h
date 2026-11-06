@@ -18,9 +18,13 @@ struct HostTime
 class Engine
 {
 public:
-    // Itch frame choices, in bars. Index 0 is off.
-    static constexpr int frameChoices = 9;
-    static constexpr float frameBars[frameChoices] = { 0.0f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f, 8.0f };
+    // Itch frame choices, in bars. Index 0 is off. frameLabels are the window's short
+    // UTF-8 labels; the host sees DendriteProcessor::itchNames.
+    static constexpr int frameChoices = 12;
+    static constexpr float frameBars[frameChoices] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f, 8.0f };
+    static constexpr const char* frameLabels[frameChoices] = { "off", "\xc2\xbc", "\xc2\xbd", "\xc2\xbe", "1", "1\xc2\xbc",
+                                                               "1\xc2\xbd", "1\xc2\xbe", "2", "3", "4", "8" };
+    static constexpr int defaultFrame = 10; // 4 bars
 
     void prepare (float sampleRate);
     void reset();
@@ -33,7 +37,7 @@ public:
     {
         Echo::View echo;
         float repetition = 0.0f, frameProgress = 0.0f, boredom = 0.0f;
-        std::array<float, 3> lamps {};
+        std::array<float, Heads::count> lamps {};
         bool itching = false;
         float correlation = 1.0f, inLevel = 0.0f, outLevel = 0.0f;
         double bpm = 120.0;
@@ -51,7 +55,7 @@ private:
     Listener listener;
     Heads heads;
 
-    int itchChoice = 7;
+    int itchChoice = defaultFrame;
     float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f;
 
     // attack detector

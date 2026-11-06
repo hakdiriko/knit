@@ -55,7 +55,7 @@ private:
     juce::Image lampGlow;
     int choice = DendriteProcessor::defaultItch;
     float repetition = 0.0f, progress = 0.0f, boredom = 0.0f;
-    float lamps[3] {};
+    float lamps[dendrite::Heads::count] {};
     bool itching = false, dragging = false;
 };
 } // namespace dendrite::ui

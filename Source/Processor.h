@@ -38,7 +38,7 @@ public:
     juce::AudioProcessorValueTreeState params;
 
     static constexpr float defaultFeed = 0.5f, defaultSpace = 0.4f;
-    static constexpr int defaultItch = 7; // 4 bars
+    static constexpr int defaultItch = dendrite::Engine::defaultFrame; // 4 bars
     static const juce::StringArray itchNames;
 
     static juce::String feedName (float feed);
@@ -51,7 +51,7 @@ public:
         std::atomic<float> pan { 0.0f }, spread { 0.0f }, diffuse { 0.0f }, rotate { 0.0f }, theta { 0.0f };
         std::atomic<float> returnLevel { 0.0f }, fill { 0.0f }, throwing { 0.0f }, breath { 0.0f };
         std::atomic<float> repetition { 0.0f }, frameProgress { 0.0f }, boredom { 0.0f };
-        std::array<std::atomic<float>, 3> lamps {};
+        std::array<std::atomic<float>, dendrite::Heads::count> lamps {};
         std::atomic<float> correlation { 1.0f }, inLevel { 0.0f }, outLevel { 0.0f }, bpm { 120.0f };
         std::atomic<bool> hostPlaying { false }, itching { false };
 

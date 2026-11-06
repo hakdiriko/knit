@@ -1,8 +1,8 @@
 #include "Processor.h"
 #include "Editor.h"
 
-const juce::StringArray DendriteProcessor::itchNames { "off",    "1 bar",  "1.25 bars", "1.5 bars", "1.75 bars",
-                                                       "2 bars", "3 bars", "4 bars",    "8 bars" };
+const juce::StringArray DendriteProcessor::itchNames { "off",       "1/4 bar",   "1/2 bar", "3/4 bar", "1 bar",  "1.25 bars",
+                                                       "1.5 bars",  "1.75 bars", "2 bars",  "3 bars",  "4 bars", "8 bars" };
 
 namespace
 {
@@ -26,7 +26,7 @@ namespace
         layout.add (std::make_unique<AudioParameterBool> (
             ParameterID { "throw", paramVersion }, "throw", false,
             AudioParameterBoolAttributes().withStringFromValueFunction ([] (bool v, int) { return v ? String ("throwing") : String ("-"); })));
-        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "frame", paramVersion }, "itch",
+        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "frames", paramVersion }, "itch",
                                                             DendriteProcessor::itchNames, DendriteProcessor::defaultItch));
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { "bypass", paramVersion }, "bypass", false));
         return layout;
@@ -58,7 +58,7 @@ DendriteProcessor::DendriteProcessor()
     feedParam = params.getRawParameterValue ("feed");
     spaceParam = params.getRawParameterValue ("space");
     throwParam = params.getRawParameterValue ("throw");
-    itchParam = params.getRawParameterValue ("frame");
+    itchParam = params.getRawParameterValue ("frames");
     bypassParam = params.getRawParameterValue ("bypass");
 }
 
@@ -153,7 +153,7 @@ void DendriteProcessor::publish()
     d.repetition.store (v.repetition, relaxed);
     d.frameProgress.store (v.frameProgress, relaxed);
     d.boredom.store (v.boredom, relaxed);
-    for (size_t h = 0; h < 3; ++h)
+    for (size_t h = 0; h < d.lamps.size(); ++h)
         d.lamps[h].store (v.lamps[h], relaxed);
     d.correlation.store (v.correlation, relaxed);
     d.inLevel.store (v.inLevel, relaxed);

@@ -4,8 +4,9 @@ namespace dendrite::ui
 {
 namespace
 {
-    const char* cellLabels[] = { "off", "1", "1\xc2\xbc", "1\xc2\xbd", "1\xc2\xbe", "2", "3", "4", "8" };
-    const char* headNames[] = { "scream", "laugh", "manipulate" };
+    const auto& cellLabels = dendrite::Engine::frameLabels;
+    const auto& headNames = dendrite::Heads::names;
+    constexpr int heads = dendrite::Heads::count;
 
     void panel (juce::Graphics& g, juce::Rectangle<float> b)
     {
@@ -98,7 +99,7 @@ void ThrowPad::mouseExit (const juce::MouseEvent&)
 //==============================================================================
 ItchPanel::ItchPanel (DendriteProcessor& p)
     : processor (p),
-      link (*p.params.getParameter ("frame"), [this] (float v) { choice = juce::roundToInt (v); repaint(); })
+      link (*p.params.getParameter ("frames"), [this] (float v) { choice = juce::roundToInt (v); repaint(); })
 {
     link.sendInitialUpdate();
     lampGlow = makeGlow (colour::coral, 64);
@@ -111,7 +112,7 @@ void ItchPanel::tick()
     progress = d.frameProgress.load (std::memory_order_relaxed);
     boredom = d.boredom.load (std::memory_order_relaxed);
     itching = d.itching.load (std::memory_order_relaxed);
-    for (size_t k = 0; k < 3; ++k)
+    for (size_t k = 0; k < (size_t) heads; ++k)
     {
         const float target = d.lamps[k].load (std::memory_order_relaxed);
         lamps[k] += (target - lamps[k]) * (target > lamps[k] ? 0.6f : 0.12f);
@@ -188,10 +189,10 @@ void ItchPanel::paint (juce::Graphics& g)
         }
     }
 
-    // the three heads
+    // the heads
     const auto row = b.reduced (12.0f, 0.0f).withTrimmedTop (114.0f).withHeight (56.0f);
-    const float cw = row.getWidth() / 3.0f;
-    for (int k = 0; k < 3; ++k)
+    const float cw = row.getWidth() / (float) heads;
+    for (int k = 0; k < heads; ++k)
     {
         const auto col = juce::Rectangle<float> (row.getX() + (float) k * cw, row.getY(), cw, row.getHeight());
         const auto c = juce::Point<float> (col.getCentreX(), col.getY() + 14.0f);
@@ -237,7 +238,7 @@ void ItchPanel::mouseMove (const juce::MouseEvent& e)
     const bool overCells = cellArea().expanded (0.0f, 8.0f).contains (e.position);
     setMouseCursor (overCells ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
     if (onHint)
-        onHint ("drag to choose how long dendrite can stand the same thing. when it can't, its three heads play");
+        onHint ("drag to choose how long dendrite can stand the same thing. when it can't, its heads play");
 }
 
 void ItchPanel::mouseExit (const juce::MouseEvent&)
