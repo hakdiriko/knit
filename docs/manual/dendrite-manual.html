@@ -3,236 +3,168 @@
 <head>
 <meta charset="utf-8">
 <title>dendrite manual</title>
-<!-- One A4 page. Render to PDF with: python3 docs/manual/render_manual.py -->
+<!-- One A4 page. Render to PDF with: node docs/manual/render_manual.js [preview.png] -->
 <style>
   @font-face { font-family: "Inter"; font-weight: 300; src: url("../../Resources/fonts/Inter-Light.ttf"); }
   @font-face { font-family: "Inter"; font-weight: 400; src: url("../../Resources/fonts/Inter-Regular.ttf"); }
   @font-face { font-family: "Inter"; font-weight: 500; src: url("../../Resources/fonts/Inter-Medium.ttf"); }
 
+  /* true black; one light (warm white), one colour for the itch */
   :root {
-    --stone0: #0c0b0a; --stone1: #141210; --stone2: #1d1a17;
-    --line: #2c2824; --line2: #403a33;
-    --ink: #efe8dc; --dim: #a39a8f; --faint: #6c645b;
-    --ochre: #d9a35b; --ochreHot: #f4cd8c; --cool: #8cbccb; --coral: #eb6a50;
+    --black: #000; --rule: #1c1c1c; --rule2: #2e2e2e;
+    --light: #f6f3ec; --dim: #8d8a84; --faint: #4f4d49;
+    --glow: #ffe2b0; --itch: #f08a72;
   }
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: var(--stone0); }
+  html, body { background: var(--black); }
   body {
     width: 210mm; height: 297mm; overflow: hidden;
-    padding: 12mm 13mm 9mm;
-    font-family: "Inter", sans-serif; font-weight: 400;
-    font-size: 7.6pt; line-height: 1.45; color: var(--dim);
-    background: radial-gradient(120% 60% at 30% 0%, #17140f 0%, var(--stone0) 60%);
+    padding: 13mm 16mm 9mm;
+    font-family: "Inter", sans-serif; font-weight: 300;
+    font-size: 8pt; line-height: 1.5; color: var(--dim);
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
     display: flex; flex-direction: column;
   }
 
-  header { display: flex; align-items: baseline; gap: 5mm; }
-  h1 { font-weight: 300; font-size: 30pt; letter-spacing: 0.04em; color: var(--ink); line-height: 1; }
-  .tag { font-size: 9.5pt; color: var(--faint); letter-spacing: 0.03em; }
-  .meta { margin-left: auto; font-size: 7pt; letter-spacing: 0.08em; text-transform: lowercase; color: var(--faint); }
-  .meta b { color: var(--ochre); font-weight: 500; }
-
-  .lede {
-    margin-top: 4mm; max-width: 172mm;
-    font-size: 9.6pt; line-height: 1.5; font-weight: 300; color: var(--ink);
+  header { display: flex; align-items: baseline; }
+  h1 {
+    position: relative; font-weight: 300; font-size: 30pt; letter-spacing: 0.06em; line-height: 1;
+    color: var(--light); text-shadow: 0 0 6mm rgba(255, 226, 176, 0.22);
   }
-  .lede em { font-style: normal; color: var(--ochreHot); }
+  /* the photon: one point of light above the i */
+  h1 .i { position: relative; }
+  h1 .i::after {
+    content: ""; position: absolute; left: 50%; top: 0.4mm; transform: translateX(-50%); width: 1.3mm; height: 1.3mm; border-radius: 50%;
+    background: var(--glow); box-shadow: 0 0 2mm 0.6mm rgba(255, 226, 176, 0.75), 0 0 7mm 2mm rgba(255, 226, 176, 0.22);
+  }
+  .meta { margin-left: auto; font-size: 6.8pt; letter-spacing: 0.18em; color: var(--faint); }
 
-  .show { grid-area: show; }
-  figure { position: relative; border-radius: 2.4mm; overflow: hidden; border: 0.3mm solid var(--line); }
+  .top { margin-top: 6mm; display: grid; grid-template-columns: 2fr 1fr; gap: 7mm; align-items: end; }
+  .lede { font-size: 11pt; line-height: 1.55; color: var(--light); }
+  .lede span { display: block; }
+  .lede .soft { color: var(--dim); }
+
+  figure { position: relative; margin-top: 6mm; border: 0.25mm solid var(--rule); }
   figure img { display: block; width: 100%; }
   .n {
     position: absolute; transform: translate(-50%, -50%);
-    width: 5.2mm; height: 5.2mm; border-radius: 50%;
-    background: rgba(12, 11, 10, 0.88); border: 0.35mm solid var(--ochre);
-    color: var(--ochreHot); font-weight: 500; font-size: 7.4pt;
+    width: 4.6mm; height: 4.6mm; border-radius: 50%;
+    background: rgba(0, 0, 0, 0.85); border: 0.25mm solid var(--glow);
+    color: var(--glow); font-weight: 400; font-size: 6.6pt;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 0 3mm rgba(217, 163, 91, 0.35);
+    box-shadow: 0 0 2.6mm rgba(255, 226, 176, 0.35);
   }
-  .n.coral { border-color: var(--coral); color: #ffb6a5; box-shadow: 0 0 3mm rgba(235, 106, 80, 0.35); }
-  .n.cool { border-color: var(--cool); color: #cfe6ee; box-shadow: 0 0 3mm rgba(140, 188, 203, 0.3); }
+  .n.itch { border-color: var(--itch); color: var(--itch); box-shadow: 0 0 2.6mm rgba(240, 138, 114, 0.35); }
 
-  main { margin-top: 5mm; display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-areas: "show show start" "col1 col2 col3";
-         grid-template-rows: auto 1fr; gap: 5.5mm 6mm; flex: 1; min-height: 0; }
-  .start { grid-area: start; } .col1 { grid-area: col1; } .col2 { grid-area: col2; } .col3 { grid-area: col3; }
-  section + section { margin-top: 3.6mm; }
+  main { margin-top: 6mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm 7mm; flex: 1; min-height: 0; align-content: start; }
   h2 {
     display: flex; align-items: center; gap: 2mm;
-    font-weight: 500; font-size: 8.6pt; letter-spacing: 0.06em; color: var(--ink);
-    margin-bottom: 1.3mm;
+    font-weight: 400; font-size: 7pt; letter-spacing: 0.22em; color: var(--light);
+    margin-bottom: 2mm;
   }
-  h2 .dot { width: 4.4mm; height: 4.4mm; border-radius: 50%; border: 0.3mm solid var(--ochre);
-            color: var(--ochreHot); font-size: 6.4pt; display: inline-flex; align-items: center; justify-content: center; }
-  h2 .dot.coral { border-color: var(--coral); color: #ffb6a5; }
-  h2 .dot.cool { border-color: var(--cool); color: #cfe6ee; }
-  h3 { font-weight: 500; font-size: 7.4pt; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin-bottom: 1.4mm; }
-  p + p { margin-top: 1.4mm; }
-  strong { font-weight: 500; color: var(--ink); }
-  .o { color: var(--ochreHot); }
-  .c { color: #f39a85; }
+  h2 i { font-style: normal; color: var(--glow); }
+  h2 i.itch { color: var(--itch); }
+  p + p { margin-top: 1.8mm; }
+  b { font-weight: 400; color: var(--light); }
+  .scale { display: block; color: var(--faint); letter-spacing: 0.02em; }
+  .scale em { font-style: normal; color: var(--dim); }
+  .heads { display: block; margin: 1.8mm 0; color: var(--itch); letter-spacing: 0.02em; }
 
-  .axis { display: grid; grid-template-columns: 11mm 1fr; gap: 0.6mm 2mm; margin: 1.6mm 0; }
-  .axis dt { color: var(--ink); font-weight: 500; }
-  .scale { color: var(--dim); letter-spacing: 0.01em; }
-  .scale i { font-style: normal; color: var(--line2); padding: 0 0.6mm; }
-
-  .keys { margin-top: 1.6mm; display: grid; grid-template-columns: auto 1fr; gap: 0.5mm 2.2mm; }
-  .key { font-weight: 500; color: var(--ink); white-space: nowrap; }
-
-  .heads { margin: 1.6mm 0; display: grid; grid-template-columns: 17mm 1fr; gap: 0.8mm 2mm; }
-  .heads dt { color: #f39a85; font-weight: 500; }
-
-  ol { list-style: none; counter-reset: s; }
-  ol li { counter-increment: s; position: relative; padding-left: 5mm; }
-  ol li + li { margin-top: 1.1mm; }
-  ol li::before { content: counter(s); position: absolute; left: 0; top: 0; color: var(--ochre); font-weight: 500; }
-
-  .recipes { margin-top: 3.2mm; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2.4mm; }
-  .recipes h3 { grid-column: 1 / -1; margin-bottom: -0.8mm; }
-  .recipe { padding: 1.6mm 2.4mm; border-radius: 1.6mm; background: var(--stone1); border: 0.25mm solid var(--line); line-height: 1.4; }
-  .recipe b { display: block; font-weight: 500; color: var(--ink); }
-  .recipe span { display: block; color: var(--ochre); letter-spacing: 0.02em; }
-
-  ul { list-style: none; }
-  ul li { position: relative; padding-left: 3mm; }
-  ul li + li { margin-top: 0.8mm; }
-  ul li::before { content: ""; position: absolute; left: 0.2mm; top: 1.55mm; width: 1mm; height: 1mm; border-radius: 50%; background: var(--line2); }
-  code { font-family: "Inter", sans-serif; font-weight: 500; color: var(--ink); font-size: 7.1pt; }
+  .low { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm;
+         padding-top: 4mm; border-top: 0.25mm solid var(--rule); }
+  .tries span { display: block; color: var(--glow); }
+  .tries p + p { margin-top: 1.4mm; }
+  code { font-family: "Inter", sans-serif; font-weight: 400; color: var(--light); }
 
   footer {
-    margin-top: 4mm; padding-top: 2.4mm; border-top: 0.25mm solid var(--line);
-    display: flex; justify-content: space-between; font-size: 6.6pt; color: var(--faint); letter-spacing: 0.04em;
+    margin-top: 4mm; display: flex; justify-content: space-between;
+    font-size: 6.4pt; color: var(--faint); letter-spacing: 0.14em;
   }
 </style>
 </head>
 <body>
   <header>
-    <h1>dendrite</h1>
-    <div class="tag">a dub echo that grows around your head</div>
-    <div class="meta"><b>v1.0</b> &nbsp;·&nbsp; vst3 · au &nbsp;·&nbsp; windows · macos</div>
+    <h1>dendr<span class="i">ı</span>te</h1>
+    <div class="meta">v1.1 &nbsp;·&nbsp; vst3 · au &nbsp;·&nbsp; windows · macos</div>
   </header>
 
-  <p class="lede">
-    dendrite is a <em>dotted-eighth dub echo</em> that locks to your project's tempo. Every repeat steps a little further
-    out from the middle, so the echo grows from inside your head to all around it, while the mono sum stays a clean dub echo.
-    It ducks while you play and swells in the gaps. And when a part repeats for too long, it gets an <em>itch</em>.
-  </p>
+  <div class="top">
+    <p class="lede">
+      <span>a dub echo. dotted, in time, safe in mono.</span>
+      <span>each repeat steps a little further out:</span>
+      <span>inside your head, then all around it.</span>
+      <span class="soft">repeat yourself too long, and it itches.</span>
+    </p>
+    <section class="start">
+      <h2>start</h2>
+      <p>put it straight on a track. no send, no mix knob.</p>
+      <p>play. the default already works.</p>
+      <p>throw the last hit of a phrase.</p>
+      <p>move the light while it plays.</p>
+    </section>
+  </div>
 
+  <figure>
+    <img src="window.png" alt="the dendrite window">
+    <div class="n" style="left: 64.6%; top: 16.6%">1</div>
+    <div class="n" style="left: 78.2%; top: 16.3%">2</div>
+    <div class="n itch" style="left: 76.8%; top: 59.4%">3</div>
+  </figure>
 
   <main>
-    <div class="show">
-      <figure>
-        <img src="window.png" alt="the dendrite window">
-        <div class="n" style="left: 64.6%; top: 16.6%">1</div>
-        <div class="n" style="left: 78.2%; top: 16.3%">2</div>
-        <div class="n coral" style="left: 76.8%; top: 59.4%">3</div>
-        <div class="n cool" style="left: 66.4%; top: 6.3%">4</div>
-      </figure>
-      <div class="recipes">
-        <h3>three places to begin</h3>
-        <div class="recipe"><b>Dub stab</b><span>dub 50 · around 30</span>throw the last stab</div>
-        <div class="recipe"><b>Voice into the walls</b><span>drown 70 · envelop 65</span>on headphones, itch off</div>
-        <div class="recipe"><b>A loop that wakes up</b><span>whisper 25 · around 40</span>itch 4, then leave it be</div>
-      </div>
-    </div>
+    <section>
+      <h2><i>1</i>light</h2>
+      <p>drag it.</p>
+      <p><b>up</b> is how long the repeats live.
+        <span class="scale">whisper <em>·</em> dub <em>·</em> drown <em>·</em> endless</span></p>
+      <p><b>right</b> is where they live.
+        <span class="scale">inside <em>·</em> around <em>·</em> envelop <em>·</em> beyond</span></p>
+      <p>every hit grows a branch.</p>
+    </section>
 
-    <div class="col1">
-      <section>
-        <h2><span class="dot">1</span>the field: drag the light</h2>
-        <p>One point, two directions. The light glows with what you hear.</p>
-        <dl class="axis">
-          <dt>up</dt>
-          <dd><strong>feed</strong>, how long the repeats live<br>
-            <span class="scale">whisper<i>›</i>dub<i>›</i>drown<i>›</i>endless</span></dd>
-          <dt>right</dt>
-          <dd><strong>space</strong>, where they live<br>
-            <span class="scale">inside<i>›</i>around<i>›</i>envelop<i>›</i>beyond</span></dd>
-        </dl>
-        <p>Every hit you play grows a branch, and the repeats branch off it at the dotted ⅛ and the ¼. Far right, the repeats
-          dissolve and slowly turn around you.</p>
-        <div class="keys">
-          <span class="key">shift-drag</span><span>fine moves</span>
-          <span class="key">double-click</span><span>back to dub 50 · around 40</span>
-          <span class="key">mouse wheel</span><span>feed (sideways: space)</span>
-        </div>
+    <section>
+      <h2><i>2</i>throw</h2>
+      <p><b>hold.</b> what is playing falls into the echo, louder, off to one side.</p>
+      <p><b>let go.</b> it drifts home over two bars.</p>
+      <p>at the bottom of the light, only what you throw gets in.</p>
+    </section>
+
+    <section>
+      <h2><i class="itch">3</i>itch</h2>
+      <p>how long it can stand the same thing: <b>¼&nbsp;bar to 8&nbsp;bars</b>, or off.</p>
+      <p>it listens, grows restless, takes the loudest hit, and three of five heads answer.</p>
+      <span class="heads">scream · laugh · manipulate<br>swarm · ghost</span>
+      <p>then quiet.</p>
+    </section>
+
+
+    <div class="low">
+      <section class="tries">
+        <h2>three places to begin</h2>
+        <p><span>dub 50 · around 30</span>a chord stab. throw the last one.</p>
+        <p><span>drown 70 · envelop 65</span>a voice, on headphones. itch off.</p>
+        <p><span>whisper 25 · around 40</span>a loop. itch 4. leave it be.</p>
       </section>
 
       <section>
-        <h2><span class="dot cool">4</span>tempo and mono</h2>
-        <p>The chip shows the echo time; its dot lights while the song plays. <strong>mono-safe</strong> is a promise:
-          fold the mix to mono and the space disappears cleanly, leaving a plain dub echo with nothing hollow or phasey.</p>
-      </section>
-    </div>
-
-    <div class="col2">
-      <section>
-        <h2><span class="dot">2</span>throw</h2>
-        <p><strong>Hold</strong> to throw what's playing into the echo. While you hold, the send opens and the repeats jump
-          louder and step out to one side. Let go, and they fall back over about two bars and drift home.</p>
-        <p>Throw the last word of a line, a snare at the end of a phrase, a chord stab. Map <strong>throw</strong> to a pad or
-          a key in Live (Ctrl+M or Ctrl+K). At the very bottom, <strong>off</strong>, only what you throw reaches the echo:
-          the dub engineer's closed send.</p>
+        <h2>beneath</h2>
+        <p>two tape heads, the dotted ⅛ and the ¼, in one loop. each pass: less top, more grit, a wow that never repeats.</p>
+        <p>space only moves the sides. fold to mono and a clean dub echo stays.</p>
       </section>
 
       <section>
-        <h2><span class="dot coral">3</span>itch</h2>
-        <p>Choose how long dendrite can stand the same thing: <strong>1 to 8 bars</strong>, or off. It listens every sixteenth.
-          When a stretch sounds like the ones before it, it grows <span class="c">restless</span> (the three dots), then grabs
-          the loudest hit of the last bar and three heads answer:</p>
-        <dl class="heads">
-          <dt>scream</dt><dd>a rising throat that sweeps across your head</dd>
-          <dt>laugh</dt><dd>ha, ha, ha, bouncing left and right, slowing down</dd>
-          <dt>manipulate</dt><dd>the hit slowed down and turned around you</dd>
-        </dl>
-        <p>After every itch comes a full stretch of quiet. The longer a loop runs unchanged, the harder it itches.</p>
+        <h2>notes</h2>
+        <p>no latency. never louder than what you played into it. bypass fades in 30 ms.</p>
+        <p>map <b>throw</b> to a key: ctrl+k in live.</p>
+        <p>shift-drag for fine moves. double-click goes home.</p>
       </section>
-    </div>
-
-    <div class="start">
-      <section>
-        <h3>start here</h3>
-        <ol>
-          <li>Put dendrite <strong>straight on a track</strong>. The dry sound passes untouched and the echo is added on top,
-            so there is no mix knob and no return track to set up.</li>
-          <li>Play. The default, <span class="o">dub · around</span>, already works.</li>
-          <li>Hold <strong>throw</strong> on the last hit of a phrase.</li>
-          <li>Move the light while it plays: up for longer, right for wider.</li>
-        </ol>
-      </section>
-
-
-
-      <section>
-        <h3>good to know</h3>
-        <ul>
-          <li>No latency, nothing to set up, no mix knob.</li>
-          <li><strong>endless</strong> keeps everything ringing while you play and fades slowly when you stop. The echo is never louder than what you played into it.</li>
-          <li>A safety limiter at −0.3 dBFS. Bypass fades out in 30 ms.</li>
-          <li>Install: copy <code>dendrite.vst3</code> to <code>C:\Program Files\Common Files\VST3</code> and rescan in Live
-            (Settings › Plug-Ins). On a Mac, use <code>~/Library/Audio/Plug-Ins</code> (VST3 and Components).</li>
-        </ul>
-      </section>
-    </div>
-
-    <div class="col3">
-      <section>
-        <h3>under the hood</h3>
-        <ul>
-          <li>Two tape heads in one loop, the dotted ⅛ and the ¼. The ⅛ keeps the side and the ¼ crosses it: the dub ping.</li>
-          <li>Every pass loses a little top and gains a little grit, like tape, and wobbles with a slow wow that never repeats.</li>
-          <li>It breathes: it ducks under what you play and swells on its own by up to 3 dB.</li>
-          <li>space only ever moves the side. The middle never hears it, which is why dendrite is mono-safe.</li>
-        </ul>
-      </section>
-
     </div>
   </main>
 
   <footer>
-    <span>dendrite 1.0 &nbsp;·&nbsp; hakdiriko &nbsp;·&nbsp; 2026</span>
-    <span>feed · space · throw · itch: every control can be automated</span>
+    <span>dendrite 1.1 &nbsp;·&nbsp; hakdiriko &nbsp;·&nbsp; 2026</span>
+    <span>windows <code>C:\Program Files\Common Files\VST3</code> &nbsp;·&nbsp; macos <code>~/Library/Audio/Plug-Ins</code></span>
   </footer>
 </body>
 </html>
