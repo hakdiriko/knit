@@ -53,6 +53,12 @@ Field::Field (DendriteProcessor& p)
     setRepaintsOnMouseActivity (false);
 }
 
+Field::~Field()
+{
+    if (touching)
+        setThrow (false); // never leave a throw held when the window closes mid-touch
+}
+
 juce::Rectangle<float> Field::inner() const
 {
     return getLocalBounds().toFloat().withTrimmedLeft (leftMargin).withTrimmedBottom (bottomMargin)
@@ -899,13 +905,11 @@ void Field::paint (juce::Graphics& g)
         g.fillRect (b.withTop (floor));
     }
 
-    // a nerve carries the throw to the light: from your touch, or from the soma
-    const bool fromTouch = throwStyle == ThrowStyle::tissue && touchGlow > 0.01f;
-    const bool fromSoma = throwStyle == ThrowStyle::soma && throwGlow > 0.01f;
-    if (fromTouch || fromSoma)
+    // a nerve carries the throw from your touch to the light
+    if (touchGlow > 0.01f)
     {
-        const auto from = fromTouch ? touch : somaCentre;
-        const float amount = fromTouch ? touchGlow : throwGlow;
+        const auto from = touch;
+        const float amount = touchGlow;
         const auto dv = lp - from;
         const auto mid = (from + lp) * 0.5f + juce::Point<float> (-dv.y, dv.x) * 0.12f + flow (from, (float) now * 3.0f) * 3.0f;
         juce::Path nerve;
@@ -921,7 +925,6 @@ void Field::paint (juce::Graphics& g)
             g.setOpacity (amount * (1.0f - ph * 0.5f));
             g.drawImage (glowIvory, juce::Rectangle<float> (14.0f, 14.0f).withCentre (quad (from, mid, lp, ph)));
         }
-        if (fromTouch)
         {
             g.setOpacity (0.6f * touchGlow);
             g.drawImage (glowIvory, juce::Rectangle<float> (40.0f, 40.0f).withCentre (touch));
@@ -1001,8 +1004,7 @@ void Field::mouseMove (const juce::MouseEvent& e)
 {
     const bool near = e.position.getDistanceFrom (light()) < grabRadius;
     hovering = near;
-    setMouseCursor (near ? juce::MouseCursor::DraggingHandCursor
-                         : (throwStyle == ThrowStyle::tissue ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::CrosshairCursor));
+    setMouseCursor (near ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::PointingHandCursor);
 }
 
 void Field::mouseExit (const juce::MouseEvent&)
@@ -1017,7 +1019,7 @@ void Field::mouseDown (const juce::MouseEvent& e)
 
     if (e.position.y > (float) getHeight() - stripHeight)
         return;
-    if (throwStyle == ThrowStyle::tissue && ! near)
+    if (! near)
     {
         // touch the tissue anywhere: the nerve fires and the light throws
         touching = true;
@@ -1030,10 +1032,6 @@ void Field::mouseDown (const juce::MouseEvent& e)
     grabbedLight = true;
     feedLink.beginGesture();
     spaceLink.beginGesture();
-    if (throwStyle == ThrowStyle::light && near)
-        setThrow (true); // the light itself is the throw: hold it (and move it, if you like)
-    else if (! near)
-        setFromUnit (toUnit (e.position)); // a click elsewhere moves the light there (the sound glides)
 }
 
 void Field::mouseDrag (const juce::MouseEvent& e)
@@ -1055,7 +1053,7 @@ void Field::mouseDrag (const juce::MouseEvent& e)
 
 void Field::mouseUp (const juce::MouseEvent&)
 {
-    if (touching || (throwStyle == ThrowStyle::light && throwHeld))
+    if (touching)
         setThrow (false);
     touching = false;
     if (grabbedLight)
@@ -1068,8 +1066,8 @@ void Field::mouseUp (const juce::MouseEvent&)
 
 void Field::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (e.position.getDistanceFrom (light()) > grabRadius * 1.5f && throwStyle == ThrowStyle::tissue)
-        return;
+    if (e.position.getDistanceFrom (light()) > grabRadius * 1.5f)
+        return; // a double tap in the dark is two throws, not a reset
     feedLink.setValueAsCompleteGesture (DendriteProcessor::defaultFeed);
     spaceLink.setValueAsCompleteGesture (DendriteProcessor::defaultSpace);
 }

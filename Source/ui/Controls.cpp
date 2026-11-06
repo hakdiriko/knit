@@ -9,78 +9,7 @@ namespace
     constexpr int heads = dendrite::Heads::count;
     constexpr int cells = dendrite::Engine::frameChoices;
 
-    // a closed outline that wobbles a little, so nothing is a perfect circle
-    juce::Path membrane (juce::Point<float> c, float radius, float t, float wobble)
-    {
-        juce::Path p;
-        for (int k = 0; k <= 40; ++k)
-        {
-            const float a = (float) k / 40.0f * juce::MathConstants<float>::twoPi;
-            const float r = radius + wobble * (std::sin (3.0f * a + 1.1f * t) + 0.7f * std::sin (5.0f * a - 0.8f * t + 1.0f)
-                                               + 0.5f * std::sin (2.0f * a + 0.5f * t + 4.0f));
-            const juce::Point<float> q { c.x + r * std::cos (a), c.y + r * std::sin (a) };
-            if (k == 0)
-                p.startNewSubPath (q);
-            else
-                p.lineTo (q);
-        }
-        p.closeSubPath();
-        return p;
-    }
 } // namespace
-
-//==============================================================================
-Soma::Soma (DendriteProcessor& p)
-    : processor (p),
-      link (*p.params.getParameter ("throw"), [this] (float v) { held = v > 0.5f; })
-{
-    link.sendInitialUpdate();
-    halo = makeGlow (colour::ink, 128);
-    setMouseCursor (juce::MouseCursor::PointingHandCursor);
-}
-
-bool Soma::hitTest (int x, int y)
-{
-    return getLocalBounds().toFloat().getCentre().getDistanceFrom ({ (float) x, (float) y }) < 28.0f;
-}
-
-void Soma::tick (double t)
-{
-    now = t;
-    const float target = std::max (held ? 1.0f : 0.0f, processor.display.throwing.load (std::memory_order_relaxed));
-    glow += (target - glow) * (target > glow ? 0.5f : 0.08f);
-    repaint();
-}
-
-void Soma::paint (juce::Graphics& g)
-{
-    const auto c = getLocalBounds().toFloat().getCentre();
-    const float t = (float) now;
-    const float r = 15.0f + 4.0f * glow;
-
-    g.setOpacity (0.08f + 0.9f * glow);
-    g.drawImage (halo, juce::Rectangle<float> (r * 5.0f, r * 5.0f).withCentre (c));
-
-    // the cell: a dim body with a nucleus that lights when you hold it
-    const auto body = membrane (c, r, t, 0.9f + 0.6f * glow);
-    g.setGradientFill (juce::ColourGradient (colour::ink.withAlpha (0.06f + 0.75f * glow), c.x, c.y,
-                                             colour::ink.withAlpha (0.0f), c.x + r, c.y, true));
-    g.fillPath (body);
-    g.setColour (colour::ink.withAlpha (0.35f + 0.6f * glow));
-    g.strokePath (body, juce::PathStrokeType (1.0f));
-    g.setColour (colour::ink.withAlpha (0.5f + 0.5f * glow));
-    g.fillPath (membrane (c.translated (1.5f * std::sin (0.4f * t), 1.0f * std::cos (0.3f * t)), 3.5f + 2.0f * glow, t * 1.7f, 0.4f));
-}
-
-void Soma::mouseDown (const juce::MouseEvent&)
-{
-    link.setValueAsCompleteGesture (1.0f);
-}
-
-void Soma::mouseUp (const juce::MouseEvent&)
-{
-    link.setValueAsCompleteGesture (0.0f);
-}
 
 //==============================================================================
 ItchStrip::ItchStrip (DendriteProcessor& p)

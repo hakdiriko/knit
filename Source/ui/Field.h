@@ -9,6 +9,9 @@
 // The growth is a soft body. Young branches hang on the light and trail behind it when
 // you drag; older ones root into the tissue, so dragging stretches them thin until they
 // peel off and stay where they are. Throws grow white; the itch's heads grow coral.
+//
+// Throw has no button: grab the light to move it, touch anywhere else in the dark to throw
+// (a nerve runs from your touch to the light). The throw parameter stays mappable in Live.
 #pragma once
 
 #include "../Processor.h"
@@ -20,6 +23,7 @@ class Field : public juce::Component
 {
 public:
     explicit Field (DendriteProcessor&);
+    ~Field() override;
 
     void tick (double nowSeconds);
 
@@ -32,11 +36,6 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
-
-    // How throw is played from the window (the throw parameter stays mappable in Live).
-    enum class ThrowStyle { soma, light, tissue };
-    void setThrowStyle (ThrowStyle s) { throwStyle = s; }
-    void setSoma (juce::Point<float> centreInField) { somaCentre = centreInField; }
 
     // For the snapshot tool: move the light or touch the field without a mouse.
     void simulateTouch (juce::Point<float> unit, bool down);
@@ -128,8 +127,6 @@ private:
     juce::SharedResourcePointer<Fonts> fonts;
     juce::ParameterAttachment feedLink, spaceLink, throwLink;
     float feed = DendriteProcessor::defaultFeed, space = DendriteProcessor::defaultSpace;
-    ThrowStyle throwStyle = ThrowStyle::tissue;
-    juce::Point<float> somaCentre { -100.0f, -100.0f };
 
     std::vector<Joint> joints;
     std::vector<Due> due;

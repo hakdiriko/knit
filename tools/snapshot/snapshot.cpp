@@ -2,7 +2,6 @@
 // checked without a host. Local tool, not built in CI.
 //   dendrite_snapshot material.wav out.png [feed] [space] [itch] [seconds] [scale] [throwAt]
 // Optional environment:
-//   DENDRITE_STYLE=soma|light|tissue   how throw is played (default: the window's own)
 //   DENDRITE_THROW_LEN=0.6             how long the throw is held, in seconds
 //   DENDRITE_TOUCH=x,y                 where the throw touches the field (0..1), for the picture
 //   DENDRITE_DRAG=t0                   from t0 seconds on, the light is dragged around a loop
@@ -69,10 +68,6 @@ int main (int argc, char** argv)
 
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditor());
     auto* editor = dynamic_cast<DendriteEditor*> (base.get());
-    const auto style = env ("DENDRITE_STYLE");
-    if (style == "soma") editor->setThrowStyle (dendrite::ui::Field::ThrowStyle::soma);
-    if (style == "light") editor->setThrowStyle (dendrite::ui::Field::ThrowStyle::light);
-    if (style == "tissue") editor->setThrowStyle (dendrite::ui::Field::ThrowStyle::tissue);
     editor->setSize ((int) (DendriteEditor::designWidth * scale), (int) (DendriteEditor::designHeight * scale));
 
     std::unique_ptr<juce::AudioFormatWriter> audioOut;
@@ -81,8 +76,10 @@ int main (int argc, char** argv)
         const juce::File f (env ("DENDRITE_AUDIO"));
         f.deleteFile();
         juce::WavAudioFormat wav;
-        if (auto stream = f.createOutputStream())
-            audioOut.reset (wav.createWriterFor (stream.release(), reader->sampleRate, 2, 24, {}, 0));
+        std::unique_ptr<juce::OutputStream> stream = f.createOutputStream();
+        if (stream != nullptr)
+            audioOut = wav.createWriterFor (stream, juce::AudioFormatWriterOptions {}.withSampleRate (reader->sampleRate)
+                                                        .withNumChannels (2).withBitsPerSample (24));
     }
     if (framesDir != juce::File())
         framesDir.createDirectory();

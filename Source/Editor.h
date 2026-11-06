@@ -19,7 +19,6 @@ public:
 
     // For the snapshot tool: advance the animation to a given time without a timer.
     void animateTo (double seconds);
-    void setThrowStyle (dendrite::ui::Field::ThrowStyle);
     dendrite::ui::Field& getField() { return field; }
 
 private:
@@ -42,8 +41,6 @@ private:
     Canvas canvas { *this };
     dendrite::ui::Field field;
     dendrite::ui::ItchStrip itch;
-    dendrite::ui::Soma soma;
-    dendrite::ui::Field::ThrowStyle throwStyle = dendrite::ui::Field::ThrowStyle::tissue;
     double started = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteEditor)
