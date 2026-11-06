@@ -81,8 +81,14 @@ private:
         void clear();
         float process (float x, float drive, float diffusion) noexcept;
 
+        // The diffusers delay what they smear: the heads read this much earlier, so the
+        // repeats land on the beat (1.0 drifted 41 ms later on every pass).
+        float latency() const noexcept { return bulk; }
+
     private:
-        OnePole lp1, lp2, emphasis, hp;
+        OnePole lp1, lp2, emphasis;
+        Biquad hp, mud;
+        float bulk = 0.0f;
         DcBlocker dc;
         std::array<DriftAllpass, 4> diffusers;
         Wander drift;
@@ -107,7 +113,7 @@ private:
     // hidden settings, from the paths (updated every 16 samples)
     float pSend = 0.6f, pDotted = 0.62f, pQuarter = 0.42f, pReturn = 1.6f, pDuck = 0.6f, pCeiling = 0.5f,
           pDrive = 1.16f, pInWidth = 1.0f, pPan = 0.1f, pSpread = 0.1f, pDiffuse = 0.0f, pDiffuseMix = 0.0f, pShift = 0.0f,
-          pSideOut = 1.0f, pTrim = 1.0f, pCross = -1.0f;
+          pSideOut = 1.0f, pTrim = 1.0f, pCross = -1.0f, pLoopCap = 1.2f;
 
     // state
     float dottedSm = 0.0f, quarterSm = 0.0f;

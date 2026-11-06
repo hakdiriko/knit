@@ -172,6 +172,13 @@ struct Biquad
         const float w = tau * f / sr, c = std::cos (w), al = std::sin (w) / (2.0f * q), n = 1.0f / (1.0f + al);
         b0 = (1.0f + c) * 0.5f * n; b1 = -(1.0f + c) * n; b2 = b0; a1 = -2.0f * c * n; a2 = (1.0f - al) * n;
     }
+    void peak (float f, float q, float gainDb, float sr) noexcept // a bell, gainDb at the centre
+    {
+        f = std::clamp (f, 10.0f, 0.45f * sr);
+        const float A = std::pow (10.0f, gainDb / 40.0f), w = tau * f / sr, c = std::cos (w), al = std::sin (w) / (2.0f * q);
+        const float n = 1.0f / (1.0f + al / A);
+        b0 = (1.0f + al * A) * n; b1 = -2.0f * c * n; b2 = (1.0f - al * A) * n; a1 = b1; a2 = (1.0f - al / A) * n;
+    }
     void lowpass (float f, float q, float sr) noexcept
     {
         f = std::clamp (f, 10.0f, 0.45f * sr);

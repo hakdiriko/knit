@@ -6,6 +6,8 @@
 //   build/render in.wav out.wav [--feed 0.5] [--space 0.4] [--itch 10] [--bpm 120]
 //                [--throw start:end (seconds, repeatable)] [--stopped] [--tail seconds]
 //                [--sweep feed|space from to]  (moves a control linearly over the file)
+//                [--probe heads.raw]  (also writes what each itch head played: float32,
+//                                      interleaved left/right per head, for levelling them)
 #include "dsp/Engine.h"
 
 #include <chrono>
@@ -127,7 +129,7 @@ int main (int argc, char** argv)
     int itch = dendrite::Engine::defaultFrame;
     double bpm = 120.0;
     bool playing = true;
-    std::string sweep;
+    std::string sweep, probe;
     std::vector<std::pair<double, double>> throws;
     for (int i = 3; i < argc; ++i)
     {
@@ -139,6 +141,7 @@ int main (int argc, char** argv)
         else if (k == "--bpm") bpm = std::stod (next());
         else if (k == "--tail") tail = std::stof (next());
         else if (k == "--stopped") playing = false;
+        else if (k == "--probe") probe = next();
         else if (k == "--throw")
         {
             const std::string v = next();
@@ -168,7 +171,10 @@ int main (int argc, char** argv)
     engine.prepare ((float) in.sampleRate);
 
     Audio out = in;
-    const int block = 256;
+    const int block = probe.empty() ? 256 : 1;
+    std::ofstream probeFile;
+    if (! probe.empty())
+        probeFile.open (probe, std::ios::binary);
     const size_t total = in.left.size();
     dendrite::HostTime time;
     time.bpm = bpm;
@@ -188,6 +194,15 @@ int main (int argc, char** argv)
         engine.setControls (f, s, held, itch, false);
         time.ppq = seconds * bpm / 60.0;
         engine.process (out.left.data() + pos, out.right.data() + pos, n, time);
+        if (probeFile)
+        {
+            const auto& heads = engine.itchHeads();
+            for (int h = 0; h < dendrite::Heads::count; ++h)
+            {
+                probeFile.write ((const char*) &heads.probeL[(size_t) h], 4);
+                probeFile.write ((const char*) &heads.probeR[(size_t) h], 4);
+            }
+        }
     }
     const double elapsed = std::chrono::duration<double> (std::chrono::steady_clock::now() - started).count();
     std::fprintf (stderr, "rendered %.1f s in %.2f s (%.0fx real time)\n", (double) total / in.sampleRate, elapsed,

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.0 (your 1.0 review)
+
+What you wrote in the review checklist, and what changed in the sound:
+
+- **The rumble at 220–320 Hz is gone.** At dub the loop gained a little on every pass, so one hit's echo kept growing for about 6 seconds until the ceiling held it, and what grew was a 250–630 Hz drone. Now every pass thins the low mids a little (the tape's colour on the first repeats is the same), dub sums to just under 1 so its echo fades out on its own, and filling the silence can only take the loop as far as feed allows. whisper is a whisper again: one hit's echo is about 30 dB down after four seconds (it used to drone through the gaps).
+- **The echo leads, the wash follows.** The tape's smearing delayed every repeat by 41 ms per pass, so the "dotted ⅛" was really 416 ms at 120 BPM, and each repeat drifted further off the beat into a wash (it was the same in 0.5). Repeats now land exactly on the dotted ⅛ and the ¼, keep their edge for a few passes, and only then dissolve.
+- **itch has five heads now, three per itch.** Each itch draws three of them in an order of its own, never the same three twice running:
+  - **scream** now really happens around your head: the climbing throat circles you once or twice as it rises.
+  - **laugh** was the weak one (about 10 dB under scream). It's levelled now, and each "ha" hops from one side of your head to the other, sometimes a little behind.
+  - **manipulate** (slowed, falling, swinging around you, turning the echo's space) is unchanged in character.
+  - **swarm** (new): the attack splinters into a dozen grains all around you, each with its own pulse. They pull each other into step and close into one hit in front of you, on the beat.
+  - **ghost** (new): the hit's air turns into a whisper at one ear, which passes behind your head to the other.
+  - All five sit within about 2 dB of each other, and none ever peaks louder than the hit it came from. Every head is placed with the cues your ears use: the time and level difference between them, the head's shadow, a darker sound from behind. Headphones show it best.
+- **Shorter itch lengths.** ¼, ½ and ¾ bar join 1, 1¼, 1½, 1¾, 2, 3, 4 and 8 (default 4). With short lengths there is always at least a bar of quiet after each itch.
+- Sets saved with 1.0 open with itch at its default (4 bars). Everything else keeps its settings.
+
 ## 1.0.0 (dendrite, finished: a dub echo that grows around your head)
 
 A new instrument, built from what survived every test: the dotted dub echo of 0.5, the breathing you liked, the mono-safe space you asked for after the stab test, and the three heads of the hypnagogic demo. Four controls, a window to play, and a one-page manual in every download.

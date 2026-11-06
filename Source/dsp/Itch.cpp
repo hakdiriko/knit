@@ -16,6 +16,17 @@ namespace
     }
 
     constexpr float historySeconds = 10.0f, captureSeconds = 1.6f;
+
+    // How loud each head plays against the accent it was given, matched by ear-weighted
+    // level on drums, chords and a dub loop (tools/render/heads.cpp): no head is the
+    // quiet one any more.
+    constexpr float headGain[Heads::count] = { 0.85f, 2.7f, 1.4f, 2.6f, 5.5f };
+
+    // How much of each head goes onto the echo's tape as well.
+    constexpr float toTape[Heads::count] = { 0.25f, 0.3f, 0.55f, 0.3f, 0.2f };
+
+    // the spherical head
+    constexpr float headRadius = 0.0875f, soundSpeed = 343.0f;
 } // namespace
 
 //==============================================================================
@@ -75,15 +86,107 @@ void Listener::step (int stepsPerBar) noexcept
 }
 
 //==============================================================================
+void Binaural::Shadow::set (float alpha, float b) noexcept
+{
+    const float n = 1.0f / (1.0f + b);
+    b0 = (1.0f + alpha * b) * n;
+    b1 = (1.0f - alpha * b) * n;
+    a1 = (1.0f - b) * n;
+}
+
+void Binaural::prepare (float sampleRate)
+{
+    sr = sampleRate;
+    line.prepare ((int) (0.0015f * sr) + 8);
+    beta = sr * headRadius / soundSpeed; // the bilinear transform of Brown and Duda's head shadow
+    backL.setCutoff (3200.0f, sr);
+    backR.setCutoff (3200.0f, sr);
+    clear();
+}
+
+void Binaural::clear() noexcept
+{
+    line.clear();
+    shadowL = {};
+    shadowR = {};
+    backL.clear();
+    backR.clear();
+    delayL = delayR = targetL = targetR = 0.0f;
+    gainL = gainR = 1.0f;
+    behind = 0.0f;
+    tick = 0;
+    primed = false;
+}
+
+void Binaural::aim (float azimuth, float near) noexcept
+{
+    // Woodworth: the far ear hears it later by (a / c) (theta + sin theta)
+    const float lateral = std::sin (azimuth);
+    const float theta = std::asin (std::clamp (lateral, -1.0f, 1.0f));
+    const float itd = headRadius / soundSpeed * (theta + lateral) * sr; // > 0: the right ear first
+    targetL = std::max (0.0f, itd);
+    targetR = std::max (0.0f, -itd);
+
+    // Brown and Duda: the high-frequency gain at an ear, from the angle between the source
+    // and that ear (2 facing it, 0.1 at 150 degrees, a bright spot straight behind)
+    const auto alpha = [] (float angle) noexcept {
+        constexpr float least = 0.1f, darkest = 150.0f * pi / 180.0f;
+        return (1.0f + 0.5f * least) + (1.0f - 0.5f * least) * std::cos (angle / darkest * pi);
+    };
+    shadowL.set (alpha (std::abs (wrapAngle (azimuth + 0.5f * pi))), beta);
+    shadowR.set (alpha (std::abs (wrapAngle (azimuth - 0.5f * pi))), beta);
+
+    // from behind, the pinna takes the edge off
+    behind = 0.65f * std::max (0.0f, -std::cos (azimuth));
+
+    // close to an ear, the other ear hears much less
+    const float shade = clamp01 (near) * 0.7f * std::abs (lateral);
+    const float body = 1.0f - 0.15f * behind;
+    gainL = body * (lateral > 0.0f ? 1.0f - shade : 1.0f);
+    gainR = body * (lateral < 0.0f ? 1.0f - shade : 1.0f);
+
+    if (! primed)
+    {
+        delayL = targetL;
+        delayR = targetR;
+        primed = true;
+    }
+}
+
+void Binaural::process (float x, float azimuth, float near, float& left, float& right) noexcept
+{
+    if (tick-- <= 0)
+    {
+        tick = 15;
+        aim (azimuth, near);
+    }
+    delayL += 0.02f * (targetL - delayL);
+    delayR += 0.02f * (targetR - delayR);
+    line.push (x);
+    float l = shadowL.process (line.read (1.0f + delayL));
+    float r = shadowR.process (line.read (1.0f + delayR));
+    l = lerp (l, backL.lowpass (l), behind);
+    r = lerp (r, backR.lowpass (r), behind);
+    left = gainL * l;
+    right = gainR * r;
+}
+
+//==============================================================================
 void Heads::prepare (float sampleRate)
 {
     sr = sampleRate;
     historyM.prepare ((int) (historySeconds * sr));
-    historyS.prepare (16);
     capture.assign ((size_t) (captureSeconds * sr) + 8, 0.0f);
+    air.assign (capture.size(), 0.0f);
+    airFilter1.highpass (1700.0f, 0.7071f, sr);
+    airFilter2.highpass (1700.0f, 0.7071f, sr);
     flutter.prepare (sr, 0.32f, 0x81);
     rmsCoef = approach (0.03f, sr);
     vowel.bandpass (820.0f, 1.1f, sr);
+    for (auto* b : { &screamPlace, &laughPlace, &manipPlace, &ghostPlace })
+        b->prepare (sr);
+    for (auto& g : grains)
+        g.place.prepare (sr);
     reset();
 }
 
@@ -92,22 +195,35 @@ void Heads::reset()
     historyM.clear();
     onsets.fill ({});
     onsetHead = 0;
-    lastOnset = levelEnv = 0.0f;
+    lastOnset = 0.0f;
     now = 0;
     std::fill (capture.begin(), capture.end(), 0.0f);
+    std::fill (air.begin(), air.end(), 0.0f);
     captureLength = copied = 0;
     captureFrom = 0;
     clock = -1.0;
     end = 0.0;
     lamps.fill (0.0f);
+    probeL.fill (0.0f);
+    probeR.fill (0.0f);
+    for (auto& w : windows)
+        w = {};
+    lastSet = 0;
     throat1.clear();
     throat2.clear();
     vowel.clear();
-    screamPair.clear();
-    manipPair.clear();
+    airFilter1.clear();
+    airFilter2.clear();
     screamY1 = screamY2 = screamRms = 0.0f;
     haStart = -1.0;
     flutter.reset();
+    for (auto* b : { &screamPlace, &laughPlace, &manipPlace, &ghostPlace })
+        b->clear();
+    for (auto& g : grains)
+    {
+        g.sounding = false;
+        g.place.clear();
+    }
 }
 
 void Heads::listen (float m, float, float onset) noexcept
@@ -146,43 +262,128 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
                                       (double) capture.size() - 8.0);
     copied = 0;
     capturePeak = 1.0e-3f;
+    airFilter1.clear();
+    airFilter2.clear();
 
     const double second = sr;
-    const double gap = std::clamp (gapSamples, 0.25 * second, 2.5 * second);
+    const double gap = std::clamp (gapSamples, 0.2 * second, 2.5 * second);
 
-    // A tape's heads are fixed; these drift a little, so no two itches line up the same.
-    screamWin = { gap * dice.jitter (0.06f), std::clamp (1.5 * gap * dice.jitter (0.15f), 0.6 * second, 3.5 * second) };
-    screamFrom = 480.0f * std::exp2 (dice.range (0.0f, 0.75f));
-    screamRise = dice.range (0.4f, 0.9f) * (0.6f + 0.4f * strength);
-    screamSide = dice.sign();
-    screamFeedback = 0.955f + 0.025f * strength;
-    throat1.clear();
-    throat2.clear();
-    screamPair.clear();
-    screamY1 = screamY2 = screamRms = 0.0f;
-    screamTick = 0;
+    // Draw three of the five heads, in an order of their own; never the same three twice
+    // running.
+    std::array<int, count> order { 0, 1, 2, 3, 4 };
+    int set = 0;
+    for (int attempt = 0; attempt < 4; ++attempt)
+    {
+        for (int i = count - 1; i > 0; --i)
+            std::swap (order[(size_t) i], order[(size_t) std::min (i, (int) (dice.unit() * (float) (i + 1)))]);
+        set = 0;
+        for (int k = 0; k < perItch; ++k)
+            set |= 1 << order[(size_t) k];
+        if (set != lastSet)
+            break;
+    }
+    lastSet = set;
+    for (auto& w : windows)
+        w = {};
 
-    haRate = dice.range (4.8f, 6.0f);
-    haSlow = dice.range (0.88f, 0.94f);
-    haDecay = dice.range (0.74f, 0.86f);
-    haSign = dice.sign();
-    haMax = 4 + (int) std::lround (3.0f * strength);
-    haCount = 0;
-    double laughLength = 0.12 * second, rate = haRate;
-    for (int k = 0; k < haMax; ++k, rate *= haSlow)
-        laughLength += second / rate;
-    laughWin = { 2.0 * gap * dice.jitter (0.05f), laughLength };
-    nextHa = laughWin.start;
-    haStart = -1.0;
-    vowel.clear();
+    end = 0.0;
+    for (int slot = 0; slot < perItch; ++slot)
+    {
+        const auto head = (Head) order[(size_t) slot];
+        // A tape's heads are fixed; these drift a little, so no two itches line up the same.
+        const double start = (double) (slot + 1) * gap * dice.jitter (0.05f);
+        double length = second;
 
-    manipFloor = 0.62f - 0.25f * strength * dice.range (0.7f, 1.0f);
-    manipTurn = dice.sign() * dice.range (0.6f, 1.2f) * pi;
-    manipWin = { 3.0 * gap * dice.jitter (0.04f), std::clamp ((double) captureLength / 0.72, 0.8 * second, 4.0 * second) };
-    manipPos = 0.0f;
-    manipPair.clear();
+        switch (head)
+        {
+            case scream:
+                length = std::clamp (1.5 * gap * dice.jitter (0.15f), 0.6 * second, 3.5 * second);
+                screamFrom = 480.0f * std::exp2 (dice.range (0.0f, 0.75f));
+                screamRise = dice.range (0.4f, 0.9f) * (0.6f + 0.4f * strength);
+                screamFeedback = 0.955f + 0.025f * strength;
+                screamAz = dice.range (-pi, pi);
+                screamTurns = dice.sign() * dice.range (1.0f, 1.8f) * (0.8f + 0.4f * strength);
+                throat1.clear();
+                throat2.clear();
+                screamPlace.clear();
+                screamY1 = screamY2 = screamRms = 0.0f;
+                screamTick = 0;
+                break;
 
-    end = std::max (manipWin.start + manipWin.length, laughWin.start + laughWin.length);
+            case laugh:
+            {
+                haRate = dice.range (4.8f, 6.0f);
+                haSlow = dice.range (0.88f, 0.94f);
+                haDecay = dice.range (0.74f, 0.86f);
+                haSide = dice.sign();
+                haMax = 4 + (int) std::lround (3.0f * strength);
+                haCount = 0;
+                length = 0.12 * second;
+                double rate = haRate;
+                for (int k = 0; k < haMax; ++k, rate *= haSlow)
+                    length += second / rate;
+                nextHa = start;
+                haStart = -1.0;
+                vowel.clear();
+                laughPlace.clear();
+                break;
+            }
+
+            case manipulate:
+                manipFloor = 0.62f - 0.25f * strength * dice.range (0.7f, 1.0f);
+                manipTurn = dice.sign() * dice.range (0.6f, 1.2f) * pi;
+                manipAz = dice.range (-0.5f, 0.5f);
+                length = std::clamp ((double) captureLength / 0.72, 0.8 * second, 4.0 * second);
+                manipPos = 0.0f;
+                manipPlace.clear();
+                break;
+
+            case swarm:
+            {
+                swarmBase = std::clamp (2.0f * (float) (second / beatSamples), 2.0f, 8.0f); // eighth notes
+                swarmSpread = dice.range (0.12f, 0.2f);
+                swarmGrainLength = std::clamp (0.22f / swarmBase, 0.03f, 0.07f);
+                swarmSync = 0.0f;
+                swarmTick = 0;
+                length = std::clamp (2.0 * gap * dice.jitter (0.1f), 1.2 * second, 4.0 * second);
+                for (auto& g : grains)
+                {
+                    g.phase = dice.unit();
+                    g.rate = swarmBase * dice.jitter (swarmSpread);
+                    g.azimuth = dice.range (-pi, pi);
+                    g.sounding = false;
+                    g.place.clear();
+                }
+                break;
+            }
+
+            case ghost:
+            {
+                ghostSpeed = dice.range (0.82f, 0.95f);
+                ghostFrom = dice.sign() * dice.range (0.4f, 0.6f) * pi;
+                ghostPos = 0.0f;
+                length = std::min (3.0 * second, (double) captureLength / ghostSpeed + 0.24 * second);
+                // a velvet-noise sequence: one sparse tap per slot, random sign, decaying
+                const float span = 0.22f * sr, pitch = span / (float) velvetTaps, tauSamples = 0.07f * sr;
+                float energy = 0.0f;
+                for (int k = 0; k < velvetTaps; ++k)
+                {
+                    velvetAt[(size_t) k] = (int) ((float) k * pitch + dice.unit() * pitch);
+                    velvetWeight[(size_t) k] = dice.sign() * std::exp (-(float) velvetAt[(size_t) k] / tauSamples);
+                    energy += velvetWeight[(size_t) k] * velvetWeight[(size_t) k];
+                }
+                const float norm = 1.0f / std::sqrt (std::max (energy, 1.0e-9f));
+                for (auto& w : velvetWeight)
+                    w *= norm;
+                ghostPlace.clear();
+                break;
+            }
+        }
+
+        windows[(size_t) head] = { start, length, true };
+        end = std::max (end, start + length);
+    }
+    end += 0.02 * second; // the places' last samples
     clock = 0.0;
 }
 
@@ -199,6 +400,7 @@ void Heads::copyCapture() noexcept
                            * std::min (1.0f, (float) (captureLength - copied) / (0.02f * sr));
         const float v = historyM.at (back) * fade;
         capture[(size_t) copied] = v;
+        air[(size_t) copied] = airFilter2.process (airFilter1.process (v));
         capturePeak = std::max (capturePeak, std::abs (v));
         ++copied;
     }
@@ -217,9 +419,20 @@ float Heads::readCapture (float position) const noexcept
     return ((c3 * f + c2) * f + c1) * f + x0;
 }
 
+float Heads::readAir (float position) const noexcept
+{
+    if (position < 0.0f || position >= (float) (copied - 2))
+        return 0.0f;
+    const auto i = (size_t) position;
+    const float f = position - (float) i;
+    return air[i] + f * (air[i + 1] - air[i]);
+}
+
 void Heads::process (float& outM, float& outS, float& tapeM, float& tapeS, float& turn) noexcept
 {
     outM = outS = tapeM = tapeS = turn = 0.0f;
+    probeL.fill (0.0f);
+    probeR.fill (0.0f);
     if (copied < captureLength)
         copyCapture();
     if (! busy())
@@ -232,97 +445,216 @@ void Heads::process (float& outM, float& outS, float& tapeM, float& tapeS, float
     clock += 1.0;
     const float level = 0.75f + 0.25f * strength;
 
-    // ---- head 1: scream. The accent, rocked back and forth, excites a climbing throat.
-    const float ps = screamWin.phase (t);
-    const float e = swell (ps, 0.35f);
-    lamps[0] = e;
-    if (e > 0.0f)
+    for (int k = 0; k < count; ++k)
     {
-        if (screamTick-- <= 0)
+        if (! windows[(size_t) k].on)
         {
-            screamTick = 15;
-            const float f = std::min (screamFrom * std::exp2 (screamRise * smooth01 (ps)), 0.2f * sr);
-            throat1.bandpass (f, 14.0f, sr);
-            throat2.bandpass (2.01f * f, 16.0f, sr);
+            lamps[(size_t) k] = 0.0f;
+            continue;
         }
-        const float span = (float) std::max (32, captureLength - 4);
-        float position = (float) std::fmod (t - screamWin.start, 2.0 * span);
-        if (position > span)
-            position = 2.0f * span - position; // forward, then back: an endless excitation
-        const float x = readCapture (position);
-        const float y1 = throat1.process (x + screamFeedback * softClip (screamY1, 1.5f));
-        const float y2 = throat2.process (x + screamFeedback * softClip (screamY2, 1.5f));
-        screamY1 = y1;
-        screamY2 = y2;
-        const float y = y1 + 0.5f * y2;
-        screamRms += rmsCoef * (y * y - screamRms);
-        const float agc = std::min (40.0f, 0.42f * capturePeak / (std::sqrt (screamRms) * 1.41f + 1.0e-5f));
-        const float voice = softClip (agc * y, 1.2f) * e * level;
-
-        float re = 0.0f, im = 0.0f;
-        screamPair.process (voice, re, im);
-        const float a = screamSide * 1.25f + 0.55f * flutter.next();
-        const float m = 0.35f * re;
-        const float s = 0.95f * (re * std::sin (a) + im * std::cos (a));
+        float l = 0.0f, r = 0.0f;
+        switch ((Head) k)
+        {
+            case scream: playScream (t, level, l, r); break;
+            case laugh: playLaugh (t, level, l, r); break;
+            case manipulate: playManipulate (t, level, l, r, turn); break;
+            case swarm: playSwarm (t, level, l, r); break;
+            case ghost: playGhost (t, level, l, r); break;
+        }
+        // levelled, and never louder at its peaks than the accent it came from
+        const float ceiling = 0.85f * capturePeak, drive = 1.0f / ceiling;
+        l = softClip (l * headGain[k], drive);
+        r = softClip (r * headGain[k], drive);
+        probeL[(size_t) k] = l;
+        probeR[(size_t) k] = r;
+        const float m = 0.5f * (l + r), s = 0.5f * (l - r);
         outM += m;
         outS += s;
-        tapeM += 0.25f * m;
-        tapeS += 0.25f * s;
+        tapeM += toTape[k] * m;
+        tapeS += toTape[k] * s;
     }
+}
 
-    // ---- head 2: laugh. The accent's first syllable, again and again, lower and softer.
-    if (t >= laughWin.start && t < laughWin.start + laughWin.length && t >= nextHa && haCount < haMax)
+// ---- scream: the accent, rocked back and forth, excites a climbing throat that circles
+// your head, faster as it climbs.
+void Heads::playScream (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[scream];
+    const float ps = w.phase (t);
+    const float e = swell (ps, 0.35f);
+    lamps[scream] = e;
+    if (e <= 0.0f)
+        return;
+    if (screamTick-- <= 0)
+    {
+        screamTick = 15;
+        const float f = std::min (screamFrom * std::exp2 (screamRise * smooth01 (ps)), 0.2f * sr);
+        throat1.bandpass (f, 14.0f, sr);
+        throat2.bandpass (2.01f * f, 16.0f, sr);
+    }
+    const float span = (float) std::max (32, captureLength - 4);
+    float position = (float) std::fmod (t - w.start, 2.0 * span);
+    if (position > span)
+        position = 2.0f * span - position; // forward, then back: an endless excitation
+    const float x = readCapture (position);
+    const float y1 = throat1.process (x + screamFeedback * softClip (screamY1, 1.5f));
+    const float y2 = throat2.process (x + screamFeedback * softClip (screamY2, 1.5f));
+    screamY1 = y1;
+    screamY2 = y2;
+    const float y = y1 + 0.5f * y2;
+    screamRms += rmsCoef * (y * y - screamRms);
+    const float agc = std::min (40.0f, 0.42f * capturePeak / (std::sqrt (screamRms) * 1.41f + 1.0e-5f));
+    const float voice = softClip (agc * y, 1.2f) * e * level;
+
+    const float azimuth = screamAz + tau * screamTurns * std::pow (clamp01 (ps), 1.4f) + 0.25f * flutter.next();
+    screamPlace.process (voice, azimuth, 0.6f * e, l, r);
+}
+
+// ---- laugh: the accent's first syllable, again and again, lower and softer, hopping
+// from one side of your head to the other.
+void Heads::playLaugh (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[laugh];
+    if (t >= w.start && t < w.start + w.length && t >= nextHa && haCount < haMax)
     {
         haStart = t;
-        haLength = 0.075 * sr * dice.jitter (0.15f);
+        haLength = 0.09 * sr * dice.jitter (0.15f);
         haPos = (float) (0.002 * sr);
         haSpeed = std::exp2 (-(0.3f + 0.55f * (float) haCount) / 12.0f) * dice.jitter (0.01f);
         haAmp = std::pow (haDecay, (float) haCount) * dice.range (0.75f, 1.0f);
         if (dice.unit() < 0.8f)
-            haSign = -haSign; // mostly alternating, never a pattern
+            haSide = -haSide; // mostly alternating, never a pattern
+        haAz = haSide * dice.range (0.9f, 2.1f); // beside you, sometimes a little behind
         nextHa = t + sr / haRate * dice.jitter (0.08f);
         haRate *= haSlow;
         ++haCount;
     }
-    lamps[1] = 0.0f;
-    if (haStart >= 0.0 && t >= haStart && t < haStart + haLength)
+    lamps[laugh] = 0.0f;
+    if (haStart >= 0.0 && t >= haStart && t < haStart + haLength + 0.002 * sr)
     {
-        const float w = swell ((float) ((t - haStart) / haLength), 0.15f) * haAmp;
-        const float g = readCapture (haPos) * w;
+        const float wv = swell ((float) ((t - haStart) / haLength), 0.15f) * haAmp;
+        const float g = readCapture (haPos) * wv;
         haPos += haSpeed;
         const float grain = (0.6f * g + 0.9f * vowel.process (g)) * level;
-        const float m = 0.6f * grain, s = haSign * 0.75f * grain;
-        outM += m;
-        outS += s;
-        tapeM += 0.3f * m;
-        tapeS += 0.3f * s;
-        lamps[1] = std::min (1.0f, 1.4f * w);
+        laughPlace.process (grain, haAz, 0.5f, l, r);
+        lamps[laugh] = std::min (1.0f, 1.4f * wv);
     }
+}
 
-    // ---- head 3: manipulate. A hand on the reel: pitch and time fall together, and the
-    // sound swings around the head, taking the echo's space with it.
-    const float pm = manipWin.phase (t);
-    lamps[2] = 0.0f;
-    if (pm > 0.0f && pm < 1.0f)
+// ---- manipulate: a hand on the reel. Pitch and time fall together, and the sound
+// swings around your head, taking the echo's space with it.
+void Heads::playManipulate (double t, float level, float& l, float& r, float& turn) noexcept
+{
+    const auto& w = windows[manipulate];
+    const float pm = w.phase (t);
+    lamps[manipulate] = 0.0f;
+    if (pm <= 0.0f || pm >= 1.0f)
+        return;
+    const float speed = manipFloor + (1.0f - manipFloor) * std::exp (-3.0f * pm);
+    const float tail = std::min (1.0f, ((float) captureLength - manipPos) / (0.03f * sr));
+    const float env = std::min (1.0f, pm / 0.02f) * std::min (1.0f, (1.0f - pm) / 0.15f) * std::max (0.0f, tail);
+    const float y = readCapture (manipPos) * env * 0.9f * level;
+    manipPos += speed;
+
+    const float before = smooth01 ((float) ((t - 1.0 - w.start) / w.length));
+    const float swing = manipTurn * smooth01 (pm);
+    manipPlace.process (y, manipAz + swing, 0.2f, l, r);
+    turn = 0.5f * manipTurn * (smooth01 (pm) - before);
+    lamps[manipulate] = std::sin (pi * pm) * (0.5f + 0.5f * strength);
+}
+
+// ---- swarm: a dozen pulses, each at its own rate and place around you, fire grains of
+// the attack. Coupled (Kuramoto), they pull each other into step, a beat grid draws them
+// onto the beat, and the cloud closes into one hit in front of you.
+void Heads::playSwarm (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[swarm];
+    const float p = w.phase (t);
+    lamps[swarm] = 0.0f;
+    const bool alive = p >= 0.0f && p < 1.0f;
+
+    if (alive && swarmTick-- <= 0)
     {
-        const float speed = manipFloor + (1.0f - manipFloor) * std::exp (-3.0f * pm);
-        const float tail = std::min (1.0f, ((float) captureLength - manipPos) / (0.03f * sr));
-        const float env = std::min (1.0f, pm / 0.02f) * std::min (1.0f, (1.0f - pm) / 0.15f) * std::max (0.0f, tail);
-        const float y = readCapture (manipPos) * env * 0.9f * level;
-        manipPos += speed;
+        constexpr int every = 8;
+        swarmTick = every - 1;
+        float cx = 0.0f, cy = 0.0f;
+        for (const auto& g : grains)
+        {
+            cx += std::cos (tau * g.phase);
+            cy += std::sin (tau * g.phase);
+        }
+        cx /= (float) swarmGrains;
+        cy /= (float) swarmGrains;
+        swarmSync = std::sqrt (cx * cx + cy * cy);
+        const float mean = std::atan2 (cy, cx) / tau;
 
-        const float before = smooth01 ((float) ((t - 1.0 - manipWin.start) / manipWin.length));
-        const float alpha = manipTurn * smooth01 (pm);
-        float re = 0.0f, im = 0.0f;
-        manipPair.process (y, re, im);
-        const float m = re * (0.75f + 0.25f * std::cos (alpha));
-        const float s = 0.9f * re * std::sin (alpha) + 0.35f * im * (1.0f - std::cos (alpha));
-        outM += m;
-        outS += s;
-        tapeM += 0.55f * m;
-        tapeS += 0.55f * s;
-        turn = 0.5f * manipTurn * (smooth01 (pm) - before);
-        lamps[2] = std::sin (pi * pm) * (0.5f + 0.5f * strength);
+        const float spreadHz = swarmBase * swarmSpread;
+        const float coupling = 4.0f * spreadHz * smooth01 (p / 0.6f);
+        const float pace = 2.0f * spreadHz * smooth01 ((p - 0.25f) / 0.45f);
+        const float grid = (float) ((t - w.start) / sr) * swarmBase;
+        const float dt = (float) every / sr;
+        for (auto& g : grains)
+        {
+            const float pull = coupling * swarmSync * std::sin (tau * (mean - g.phase)) + pace * std::sin (tau * (grid - g.phase));
+            g.phase += (g.rate + pull) * dt;
+            if (g.phase < 0.0f)
+                g.phase += 1.0f;
+            if (g.phase >= 1.0f)
+            {
+                g.phase -= std::floor (g.phase);
+                if (p < 0.88f)
+                {
+                    g.sounding = true;
+                    g.age = 0;
+                    g.length = std::max (64, (int) (swarmGrainLength * sr * dice.jitter (0.2f)));
+                    g.position = 0.002f * sr;
+                    g.speed = dice.jitter (0.03f);
+                    // scattered grains are few at a time, so each is louder; in step they add up
+                    g.amp = level / (float) swarmGrains * (1.0f + 3.0f * (1.0f - swarmSync));
+                }
+            }
+        }
     }
+
+    // the cloud closes in front of you as it locks
+    const float close = smooth01 ((swarmSync - 0.55f) / 0.4f);
+    bool any = false;
+    for (auto& g : grains)
+    {
+        if (! g.sounding)
+            continue;
+        any = true;
+        const float s = std::sin (pi * (float) g.age / (float) g.length);
+        const float x = readCapture (g.position) * s * s * g.amp;
+        g.position += g.speed;
+        if (++g.age >= g.length)
+            g.sounding = false;
+        float gl = 0.0f, gr = 0.0f;
+        g.place.process (x, g.azimuth * (1.0f - close), 0.25f, gl, gr);
+        l += gl;
+        r += gr;
+    }
+    if (alive || any)
+        lamps[swarm] = alive ? 0.25f + 0.75f * swarmSync : 0.25f;
+}
+
+// ---- ghost: the accent's air, smeared by velvet noise into a whisper at one ear, that
+// passes behind your head to the other.
+void Heads::playGhost (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[ghost];
+    const float p = w.phase (t);
+    lamps[ghost] = 0.0f;
+    if (p <= 0.0f || p >= 1.0f)
+        return;
+    float y = 0.0f;
+    for (int k = 0; k < velvetTaps; ++k)
+        y += velvetWeight[(size_t) k] * readAir (ghostPos - (float) velvetAt[(size_t) k]);
+    ghostPos += ghostSpeed;
+    const float env = std::min (1.0f, p / 0.06f) * std::min (1.0f, (1.0f - p) / 0.25f);
+    y *= env * level;
+    const float azimuth = ghostFrom + (ghostFrom > 0.0f ? pi : -pi) * smooth01 (p);
+    ghostPlace.process (y, azimuth, 0.9f, l, r);
+    lamps[ghost] = env;
 }
 } // namespace dendrite

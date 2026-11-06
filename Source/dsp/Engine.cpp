@@ -51,6 +51,7 @@ void Engine::reset()
     frameSum = 0.0f;
     frameSteps = boredFrames = 0;
     frameStartedIdle = true;
+    quietFor = 1 << 30;
     wetNow = wetTarget;
     limiterEnv = 0.0f;
     corrLR = corrLL = corrRR = inPower = outPower = 0.0f;
@@ -92,7 +93,7 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
                 {
                     // The longer the loop goes on, the harder it itches.
                     const float intensity = 0.45f + 0.18f * (float) (boredFrames - 1) + 1.2f * (mean - 0.72f);
-                    const double gapBeats = std::clamp (frameBeats / 4.0, 1.0, 2.0);
+                    const double gapBeats = std::clamp (frameBeats / 4.0, 0.5, 2.0);
                     heads.fire (intensity, mixSeed (frame, itchChoice), gapBeats * samplesPerBeat, samplesPerBeat,
                                 barBeats * samplesPerBeat);
                 }
@@ -105,9 +106,13 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
         lastFrame = frame;
         frameSum = 0.0f;
         frameSteps = 0;
-        frameStartedIdle = ! heads.busy();
+        // Relief: a frame counts only if it began with the heads quiet, and (for frames
+        // shorter than a bar) at least a bar after they fell quiet.
+        frameStartedIdle = ! heads.busy()
+                           && (double) quietFor >= std::max (0.0, barBeats - frameBeats) * samplesPerBeat;
     }
     beat += beatsPerSample;
+    quietFor = heads.busy() ? 0 : quietFor + 1;
 }
 
 void Engine::process (float* left, float* right, int numSamples, const HostTime& time) noexcept
