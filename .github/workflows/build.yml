@@ -25,7 +25,7 @@ jobs:
       matrix:
         # While Hakan tests on Windows, pushes build Windows and Linux (the audit) only.
         # Run the workflow by hand (workflow_dispatch) to add the Mac build.
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"macos","runner":"macos-14","pluginval-zip":"pluginval_macOS.zip","pluginval-bin":"./pluginval.app/Contents/MacOS/pluginval"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]' || '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"macos","runner":"macos-15","pluginval-zip":"pluginval_macOS.zip","pluginval-bin":"./pluginval.app/Contents/MacOS/pluginval"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]' || '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]') }}
     defaults:
       run:
         shell: bash
