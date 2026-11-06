@@ -192,3 +192,10 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 - **Ceilings follow what was played.** Feedback and wet output are capped relative to the recent input peak (not a fixed level), so endless and throws stay as big as the playing and never lean on the safety limiter.
 - **Check:** the audit's MONO_BREAK compares the echo's mono sum at space 0 and at the default after a gain match; keep it under −30 dB (1.0 measures −139 to −141 dB).
 
+
+## 12. Echo loops (learned on dendrite 1.1)
+
+- An allpass delays what it smears. A Schroeder allpass's energy arrives at its delay length, so diffusers inside a feedback loop make every pass late by their total length (4.7 + 7.9 + 11.3 + 16.9 ms = 41 ms per pass in 0.5 and 1.0), and a tempo-synced echo drifts off the grid with every generation. Keep loop diffusers short, and read the heads earlier by their total length.
+- Two heads in one loop add coherently: paths with the same number of dotted and quarter passes land together. With dotted + quarter gains summing above 1, a single hit grows until a ceiling holds it, and the band with the least loss per pass takes over the tail. A dub setting should sum just under 1. Let only the "drown" and "endless" regions regenerate.
+- What a regenerating tail turns into is set by the per-pass response, not the first repeat. A 0.2 dB edge per pass is 4 dB after 20 passes. Thin the low mids a little on every pass (a two-pole high-pass, a gentle bell), or the tail settles into a low-mid drone.
+- Measure the tail, not the repeat: render a click and look at the long-term spectrum of the wet and at the energy by second. A growing tail, or a hump in the tail's spectrum, is a loop problem.

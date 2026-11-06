@@ -7,8 +7,14 @@ namespace
     // feed: off -> whisper -> dub -> drown -> endless. Each hidden setting turns at its
     // own place, so the regimes blur into each other instead of stepping.
     const Path<6> sendPath { { { { 0.0f, 0.0f }, { 0.08f, 0.2f }, { 0.25f, 0.42f }, { 0.5f, 0.62f }, { 0.75f, 0.78f }, { 1.0f, 0.88f } } } };
-    const Path<6> dottedPath { { { { 0.0f, 0.3f }, { 0.25f, 0.48f }, { 0.5f, 0.62f }, { 0.72f, 0.72f }, { 0.88f, 0.8f }, { 1.0f, 0.86f } } } };
-    const Path<6> quarterPath { { { { 0.0f, 0.18f }, { 0.25f, 0.32f }, { 0.5f, 0.42f }, { 0.72f, 0.5f }, { 0.88f, 0.57f }, { 1.0f, 0.62f } } } };
+    // dub (0.5) sums to just under 1: a single hit's echo now fades over many bars instead
+    // of growing until the ceiling holds it (1.0 summed to 1.04). drown and endless still
+    // regenerate, as they should.
+    const Path<6> dottedPath { { { { 0.0f, 0.3f }, { 0.25f, 0.47f }, { 0.5f, 0.6f }, { 0.72f, 0.72f }, { 0.88f, 0.8f }, { 1.0f, 0.86f } } } };
+    const Path<6> quarterPath { { { { 0.0f, 0.18f }, { 0.25f, 0.31f }, { 0.5f, 0.38f }, { 0.72f, 0.5f }, { 0.88f, 0.57f }, { 1.0f, 0.62f } } } };
+    // How far filling the silence may take the loop (dotted + quarter): at whisper it
+    // lingers, it doesn't regenerate.
+    const Path<5> loopCapPath { { { { 0.0f, 0.7f }, { 0.25f, 0.88f }, { 0.5f, 1.2f }, { 0.75f, 1.4f }, { 1.0f, 1.6f } } } };
     const Path<6> returnPath { { { { 0.0f, 0.0f }, { 0.06f, 0.3f }, { 0.25f, 0.95f }, { 0.5f, 1.6f }, { 0.75f, 1.9f }, { 1.0f, 2.0f } } } };
     const Path<4> duckPath { { { { 0.0f, 0.65f }, { 0.5f, 0.6f }, { 0.75f, 0.45f }, { 1.0f, 0.3f } } } };
     const Path<4> ceilingPath { { { { 0.0f, 0.45f }, { 0.5f, 0.5f }, { 0.8f, 0.62f }, { 1.0f, 0.8f } } } };
@@ -16,12 +22,12 @@ namespace
 
     // space: inside -> around -> envelop -> beyond.
     const Path<3> inWidthPath { { { { 0.0f, 0.3f }, { 0.25f, 1.0f }, { 1.0f, 1.0f } } } };
-    const Path<5> panPath { { { { 0.0f, 0.0f }, { 0.1f, 0.08f }, { 0.3f, 0.17f }, { 0.6f, 0.22f }, { 1.0f, 0.26f } } } };
-    const Path<5> spreadPath { { { { 0.0f, 0.0f }, { 0.1f, 0.05f }, { 0.3f, 0.16f }, { 0.6f, 0.27f }, { 1.0f, 0.34f } } } };
+    const Path<5> panPath { { { { 0.0f, 0.0f }, { 0.1f, 0.13f }, { 0.3f, 0.21f }, { 0.6f, 0.24f }, { 1.0f, 0.26f } } } };
+    const Path<5> spreadPath { { { { 0.0f, 0.0f }, { 0.1f, 0.1f }, { 0.3f, 0.2f }, { 0.6f, 0.27f }, { 1.0f, 0.34f } } } };
     const Path<5> diffusePath { { { { 0.0f, 0.0f }, { 0.35f, 0.0f }, { 0.6f, 0.45f }, { 0.8f, 0.62f }, { 1.0f, 0.7f } } } };
     const Path<3> diffuseMixPath { { { { 0.0f, 0.0f }, { 0.3f, 0.0f }, { 0.7f, 1.0f } } } };
     const Path<4> shiftPath { { { { 0.0f, 0.0f }, { 0.74f, 0.0f }, { 0.86f, 0.09f }, { 1.0f, 0.35f } } } };
-    const Path<5> sideOutPath { { { { 0.0f, 0.55f }, { 0.25f, 1.0f }, { 0.45f, 1.5f }, { 0.7f, 1.8f }, { 1.0f, 1.85f } } } };
+    const Path<5> sideOutPath { { { { 0.0f, 0.35f }, { 0.25f, 1.05f }, { 0.45f, 1.5f }, { 0.7f, 1.8f }, { 1.0f, 1.85f } } } };
     // How the quarter head treats the Side: -1 crosses it (the 0.5 ping-pong), toward +1 it
     // keeps it, so the Side loop sustains like the Mid and every pass adds to how far out
     // the repeat sits.
@@ -29,8 +35,12 @@ namespace
     const Path<5> trimPath { { { { 0.0f, 1.0f }, { 0.3f, 0.97f }, { 0.6f, 0.9f }, { 0.8f, 0.78f }, { 1.0f, 0.66f } } } };
 
     // The tape's warmth, as chosen by ear on the 0.5 sketches: the highs give gently,
-    // mild saturation, a little drifting diffusion.
-    constexpr float lp1Hz = 5450.0f, lp2Hz = 8500.0f, hpHz = 100.0f, emphasisHz = 2500.0f, emphasisAmount = 0.24f;
+    // mild saturation, a little drifting diffusion. Since 1.1 every pass also thins the low
+    // mids a little, so a regenerating tail never settles at 220-320 Hz (the rumble Hakan
+    // heard), and the diffusers are short, so each repeat keeps its edge for a few passes
+    // before it dissolves.
+    constexpr float lp1Hz = 5450.0f, lp2Hz = 8500.0f, emphasisHz = 2500.0f, emphasisAmount = 0.24f;
+    constexpr float hpHz = 150.0f, hpQ = 0.6f, mudHz = 280.0f, mudQ = 0.9f, mudDb = -1.0f;
     constexpr float tapeDiffusion = 0.38f;
     constexpr float wowSeconds = 0.0007f, flutterSeconds = 0.00007f;
 } // namespace
@@ -42,19 +52,26 @@ void Echo::TapePass::prepare (float newSampleRate, int lane)
     lp1.setCutoff (lp1Hz, sr);
     lp2.setCutoff (lp2Hz, sr);
     emphasis.setCutoff (emphasisHz, sr);
-    hp.setCutoff (hpHz, sr);
+    hp.highpass (hpHz, hpQ, sr);
+    mud.peak (mudHz, mudQ, mudDb, sr);
     dc.prepare (sr);
     // irregular lengths, different for each lane
-    constexpr float ms[2][4] = { { 4.7f, 7.9f, 11.3f, 16.9f }, { 5.3f, 8.6f, 12.4f, 17.8f } };
+    constexpr float ms[2][4] = { { 1.9f, 3.1f, 4.4f, 6.6f }, { 2.1f, 3.4f, 4.8f, 7.1f } };
+    bulk = 0.0f;
     for (size_t k = 0; k < diffusers.size(); ++k)
+    {
         diffusers[k].prepare (sr, ms[lane][k]);
+        bulk += ms[lane][k] * 0.001f * sr;
+    }
     drift.prepare (sr, 6.5f + 0.7f * (float) lane, 0x7a9e + (uint64_t) lane);
 }
 
 void Echo::TapePass::clear()
 {
-    for (auto* p : { &lp1, &lp2, &emphasis, &hp })
+    for (auto* p : { &lp1, &lp2, &emphasis })
         p->clear();
+    hp.clear();
+    mud.clear();
     dc.clear();
     for (auto& d : diffusers)
         d.clear();
@@ -68,10 +85,10 @@ float Echo::TapePass::process (float x, float drive, float diffusion) noexcept
     float y = std::tanh (drive * (x + emphasisAmount * hi) + 0.05f) - std::tanh (0.05f);
     y = y / drive - emphasisAmount / 1.4f * hi;
 
-    y = lp2.lowpass (lp1.lowpass (hp.highpass (y)));
+    y = lp2.lowpass (lp1.lowpass (mud.process (hp.process (y))));
 
     // every pass smears the repeat a little more
-    const float mod = drift.next() * 0.0004f * sr;
+    const float mod = drift.next() * 0.00016f * sr;
     for (size_t k = 0; k < diffusers.size(); ++k)
         y = diffusers[k].process (y, diffusion, mod * 0.5f * (float) (k + 1));
 
@@ -182,6 +199,7 @@ void Echo::updatePaths() noexcept
     pSideOut = sideOutPath (space);
     pTrim = trimPath (space);
     pCross = crossPath (space);
+    pLoopCap = loopCapPath (feed);
 
     // after a throw, the feedback ride falls back over about two bars
     cThrowDown = approach (std::max (0.3f, 32.0f * sixteenth / sampleRate) * 0.5f, sampleRate);
@@ -283,13 +301,22 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     const bool silent = silentFor > (int64_t) (2.0f * sixteenth) && silentFor < (int64_t) (64.0f * sixteenth);
     fillAmount += (silent ? cFillUp : cFillDown) * ((silent ? 1.0f : 0.0f) - fillAmount);
 
-    // a throw rides the feedback up, and with a low feed it lends the loop a dub's worth of it
-    gainDottedNow = std::min (0.9f, std::max (pDotted + 0.14f * fillAmount + 0.12f * throwEnv, 0.72f * throwTail));
-    gainQuarterNow = std::min (0.66f, std::max (pQuarter + 0.12f * fillAmount + 0.1f * throwEnv, 0.5f * throwTail));
+    // filling raises the feedback, never past the feed's cap; a throw rides it up, and with
+    // a low feed it lends the loop a dub's worth of it
+    float gd = pDotted + 0.14f * fillAmount, gq = pQuarter + 0.12f * fillAmount;
+    if (gd + gq > pLoopCap)
+    {
+        const float s = pLoopCap / (gd + gq);
+        gd *= s;
+        gq *= s;
+    }
+    gainDottedNow = std::min (0.9f, std::max (gd + 0.12f * throwEnv, 0.72f * throwTail));
+    gainQuarterNow = std::min (0.66f, std::max (gq + 0.1f * throwEnv, 0.5f * throwTail));
 
     // the heads
-    const float dDelay = dottedSm + leanSamples + wobbleA + 2.0f;
-    const float qDelay = quarterSm + 1.3f * leanSamples + wobbleB + 2.0f;
+    const float onBeat = tapeM.latency() - 2.0f;
+    const float dDelay = dottedSm - onBeat + leanSamples + wobbleA;
+    const float qDelay = quarterSm - onBeat + 1.3f * leanSamples + wobbleB;
     const float dM = loopM.read (dDelay), qM = loopM.read (qDelay);
     const float dS = loopS.read (dDelay), qS = loopS.read (qDelay);
 

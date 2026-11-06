@@ -47,6 +47,9 @@ public:
 
     bool takeOnset (float& level, bool& thrown) noexcept { return echo.takeOnset (level, thrown); }
 
+    // For the offline tools: what each head played this sample.
+    const Heads& itchHeads() const noexcept { return heads; }
+
 private:
     void tickClock (double beatsPerSample, double frameBeats, double barBeats, int stepsPerBar, double samplesPerBeat) noexcept;
 
@@ -69,6 +72,7 @@ private:
     float frameSum = 0.0f;
     int frameSteps = 0, boredFrames = 0;
     bool frameStartedIdle = true;
+    int64_t quietFor = 1 << 30; // samples since the heads last played
 
     // output chain
     float limiterEnv = 0.0f, limiterRelease = 0.0f;
