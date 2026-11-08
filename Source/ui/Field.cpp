@@ -173,6 +173,8 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
         auto& f = fibres[(size_t) (s.first + me)];
         f.rest = f.p = f.prev = q;
         f.v = f.flowVel = {};
+        f.shake = f.shakeLast = 0.0f;
+        f.shakeAt = -1.0;
         f.parent = parent;
         f.depth = depth;
         f.order = order;
@@ -265,6 +267,98 @@ void Field::tickSparks (double t, float dt)
     }
 }
 
+void Field::tremor (juce::Point<float> origin, float strength, double at)
+{
+    if (strength < 0.04f)
+        return;
+    // a repeat lands as many branches at once: one wave per moment and place is enough
+    for (auto& w : waves)
+        if (std::abs (w.born - at) < 0.045 && w.origin.getDistanceFrom (origin) < 90.0f)
+        {
+            w.strength = std::max (w.strength, strength);
+            return;
+        }
+    if (waves.size() >= 12)
+        waves.erase (waves.begin());
+    waves.push_back ({ origin, at, std::min (1.3f, strength), 0.0f });
+}
+
+void Field::tickTremors()
+{
+    // the wave front runs out from where the hit grew; each strand it passes starts to tremble
+    // across itself, the tips more than the roots, near ones harder than far ones
+    constexpr float frontSpeed = 1100.0f, decay = 0.13f;
+    const float reach = std::hypot ((float) getWidth(), (float) getHeight());
+    for (size_t k = 0; k < waves.size();)
+    {
+        auto& w = waves[k];
+        const float radius = frontSpeed * (float) (now - w.born);
+        if (radius > w.reached)
+        {
+            for (size_t si = 0; si < strands.size(); ++si)
+            {
+                auto& s = strands[si];
+                if (now - s.born < 0.0 || s.count < 2)
+                    continue;
+                const float side = (si & 1) ? 1.0f : -1.0f; // neighbours shake against each other
+                for (int i = 1; i < s.count; ++i)
+                {
+                    auto& f = fibres[(size_t) (s.first + i)];
+                    const float d = f.rest.getDistanceFrom (w.origin);
+                    if (d <= w.reached || d > radius)
+                        continue;
+                    const float near = 0.3f + 0.7f * std::exp (-d / 320.0f);
+                    const float amp = side * w.strength * near * (0.9f + 2.6f * std::min (1.0f, (float) f.order / 7.0f));
+                    if (std::abs (amp) >= std::abs (f.shake) * std::exp (-(float) (now - f.shakeAt) / decay))
+                    {
+                        f.shake = amp;
+                        f.shakeAt = w.born + d / frontSpeed;
+                        f.shakeLast = 0.0f;
+                        f.shakeHz = 9.0f + 6.0f * (float) ((si * 7 + (size_t) i) % 5) / 4.0f;
+                    }
+                    s.shiver = std::max (s.shiver, w.strength * near);
+                }
+            }
+            w.reached = radius;
+        }
+        if (w.reached > reach)
+        {
+            waves.erase (waves.begin() + (std::ptrdiff_t) k);
+            continue;
+        }
+        ++k;
+    }
+
+    // the tremor itself: a damped shiver, applied as a displacement the rods then carry
+    for (const auto& s : strands)
+        for (int i = 1; i < s.count; ++i)
+        {
+            auto& f = fibres[(size_t) (s.first + i)];
+            if (f.shakeAt < 0.0)
+                continue;
+            const float tau = (float) (now - f.shakeAt);
+            if (tau < 0.0f)
+                continue;
+            float o = 0.0f;
+            if (tau < 6.0f * decay)
+                o = f.shake * std::sin (juce::MathConstants<float>::twoPi * f.shakeHz * tau) * std::exp (-tau / decay);
+            else
+                f.shakeAt = -1.0;
+            const auto& parent = fibres[(size_t) (s.first + f.parent)];
+            auto across = f.rest - parent.rest;
+            const float len = across.getDistanceFromOrigin();
+            if (len < 1.0e-3f)
+                continue;
+            across = { -across.y / len, across.x / len };
+            f.p += across * (o - f.shakeLast);
+            f.prev += across * (o - f.shakeLast); // a displacement, not a velocity: it does not fling the strand
+            f.shakeLast = o;
+        }
+    const float fade = std::exp (-(float) (1.0 / 60.0) / 0.18f);
+    for (auto& s : strands)
+        s.shiver *= fade;
+}
+
 void Field::paintTissue (juce::Graphics& g)
 {
     const auto lp = light();
@@ -279,7 +373,7 @@ void Field::paintTissue (juce::Graphics& g)
         if (age < 0.0 || s.count < 2)
             continue;
         const float grown = grownOrder (age, s.life, s.growIn, s.maxOrder);
-        const float alpha = s.brightness * std::min (1.0f, (float) age / 3.0f) * breathe;
+        const float alpha = (s.brightness + 0.35f * s.shiver) * std::min (1.0f, (float) age / 3.0f) * breathe;
         if (alpha < 0.005f)
             continue;
         for (auto& p : paths)
@@ -469,6 +563,7 @@ void Field::spawnRoot (float level, Kind kind, double t)
 
     // the hit pushes the medium outwards: everything near the light flinches
     medium.pulse (lp, (110.0f + 160.0f * root.level) * (kind == throwKind ? 1.6f : 1.0f), 60.0f + 70.0f * space);
+    tremor (lp, root.level * (kind == throwKind ? 1.3f : 1.0f), t);
 
     // and bursts: a few short shoots at once, before the echo answers
     const int burst = random.nextInt (4);
@@ -511,6 +606,7 @@ void Field::spawnFrom (int parentIndex, bool quarter, double t)
     const float level = parent.level * g * 1.12f * (0.7f + 0.6f * random.nextFloat());
     if (level < threshold || parent.gen >= 14 || random.nextFloat() < 0.07f)
         return;
+    tremor (parent.p, 0.55f * level, t);
 
     const auto& tp = parent.temper;
     const float spread = 0.2f + 0.9f * space + 1.1f * d.diffuse.load (std::memory_order_relaxed);
@@ -772,6 +868,8 @@ void Field::simulate (float dt)
     for (size_t i = 0; i < joints.size(); ++i)
         if (joints[i].alive)
             flows[i] = medium.velocity (joints[i].p) + (joints[i].kind == ghostKind ? juce::Point<float> (0.0f, -14.0f) : juce::Point<float>());
+
+    tickTremors();
 
     const float h = dt / (float) substeps;
     const float carryTissue = 1.0f - std::exp (-3.0f * h), carryGrowth = 1.0f - std::exp (-5.0f * h);

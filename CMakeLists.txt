@@ -53,10 +53,8 @@ juce_add_binary_data(dendrite_fonts
         Resources/fonts/Urbanist-Regular.ttf
         Resources/fonts/Urbanist-Medium.ttf
         Resources/fonts/FragmentMono-Regular.ttf
-        Resources/lamps/bead-off.png
-        Resources/lamps/bead-on.png
-        Resources/lamps/lamp-off.png
-        Resources/lamps/lamp-on.png)
+        Resources/lamps/led-off.png
+        Resources/lamps/led-on.png)
 
 target_sources(dendrite PRIVATE
     Source/Processor.cpp
