@@ -5,9 +5,10 @@
 <title>dendrite manual</title>
 <!-- One A4 page. Render to PDF with: node docs/manual/render_manual.js [preview.png] -->
 <style>
-  @font-face { font-family: "Inter"; font-weight: 300; src: url("../../Resources/fonts/Inter-Light.ttf"); }
-  @font-face { font-family: "Inter"; font-weight: 400; src: url("../../Resources/fonts/Inter-Regular.ttf"); }
-  @font-face { font-family: "Inter"; font-weight: 500; src: url("../../Resources/fonts/Inter-Medium.ttf"); }
+  @font-face { font-family: "Urbanist"; font-weight: 300; src: url("../../Resources/fonts/Urbanist-Light.ttf"); }
+  @font-face { font-family: "Urbanist"; font-weight: 400; src: url("../../Resources/fonts/Urbanist-Regular.ttf"); }
+  @font-face { font-family: "Urbanist"; font-weight: 500; src: url("../../Resources/fonts/Urbanist-Medium.ttf"); }
+  @font-face { font-family: "Fragment Mono"; font-weight: 400; src: url("../../Resources/fonts/FragmentMono-Regular.ttf"); }
 
   /* true black and greys, one white light, one dark red (the window uses the same values) */
   :root {
@@ -21,8 +22,8 @@
   body {
     width: 210mm; height: 297mm; overflow: hidden;
     padding: 11mm 16mm 8mm;
-    font-family: "Inter", sans-serif; font-weight: 300;
-    font-size: 8pt; line-height: 1.45; color: var(--dim);
+    font-family: "Urbanist", sans-serif; font-weight: 400;
+    font-size: 8.3pt; line-height: 1.42; color: var(--dim);
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
     display: flex; flex-direction: column;
   }
@@ -41,7 +42,7 @@
   .meta { margin-left: auto; font-size: 6.8pt; letter-spacing: 0.18em; color: var(--faint); }
 
   .top { margin-top: 5mm; display: grid; grid-template-columns: 2fr 1fr; gap: 7mm; align-items: end; }
-  .lede { font-size: 11pt; line-height: 1.55; color: var(--light); }
+  .lede { font-size: 11.5pt; font-weight: 300; line-height: 1.5; color: var(--light); }
   .lede span { display: block; }
   .lede .soft { color: var(--dim); }
 
@@ -51,7 +52,7 @@
     position: absolute; transform: translate(-50%, -50%);
     width: 4.6mm; height: 4.6mm; border-radius: 50%;
     background: rgba(0, 0, 0, 0.85); border: 0.25mm solid var(--glow);
-    color: var(--glow); font-weight: 400; font-size: 6.6pt;
+    color: var(--glow); font-family: "Fragment Mono", monospace; font-weight: 400; font-size: 6.2pt;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 0 2.6mm rgba(255, 255, 255, 0.35);
   }
@@ -63,10 +64,10 @@
     font-weight: 400; font-size: 7pt; letter-spacing: 0.22em; color: var(--light);
     margin-bottom: 2mm;
   }
-  h2 i { font-style: normal; color: var(--glow); }
+  h2 i { font-style: normal; color: var(--glow); font-family: "Fragment Mono", monospace; }
   h2 i.itch { color: var(--itchText); }
   p + p { margin-top: 1.8mm; }
-  b { font-weight: 400; color: var(--light); }
+  b { font-weight: 500; color: var(--light); }
   .scale { display: block; color: var(--faint); letter-spacing: 0.02em; }
   .scale em { font-style: normal; color: var(--dim); }
   .heads { display: grid; grid-template-columns: 17mm 1fr; margin: 1.8mm 0; }
@@ -74,9 +75,10 @@
 
   .low { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm;
          padding-top: 4mm; border-top: 0.25mm solid var(--rule); }
-  .tries span { display: block; color: var(--glow); }
+  .tries span { display: block; color: var(--glow); font-family: "Fragment Mono", monospace; font-size: 0.92em; }
   .tries p + p { margin-top: 1.4mm; }
-  code { font-family: "Inter", sans-serif; font-weight: 400; color: var(--light); }
+  code, .m { font-family: "Fragment Mono", monospace; font-weight: 400; font-size: 0.92em; letter-spacing: 0; }
+  code { color: var(--light); }
 
   footer {
     margin-top: 4mm; display: flex; justify-content: space-between;
@@ -87,7 +89,7 @@
 <body>
   <header>
     <h1>dendr<span class="i">ı</span>te</h1>
-    <div class="meta">v1.1 &nbsp;·&nbsp; vst3 · au &nbsp;·&nbsp; windows · macos</div>
+    <div class="meta"><span class="m">v1.1</span> &nbsp;·&nbsp; vst3 · au &nbsp;·&nbsp; windows · macos</div>
   </header>
 
   <div class="top">
