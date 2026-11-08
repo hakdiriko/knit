@@ -10,6 +10,14 @@ namespace dendrite::ui
 // heads, which light up when it can't.
 class ItchStrip : public juce::Component
 {
+    // A rendered object (baked in Blender, Resources/lamps), kept rescaled to the screen's
+    // own pixels so each frame draws it as a plain copy.
+    struct Sprite
+    {
+        juce::Image source, scaled;
+        void draw (juce::Graphics&, juce::Point<float> centre, float size, float opacity);
+    };
+
 public:
     explicit ItchStrip (DendriteProcessor&);
     void tick();
@@ -31,7 +39,8 @@ private:
     DendriteProcessor& processor;
     juce::SharedResourcePointer<Fonts> fonts;
     juce::ParameterAttachment link;
-    juce::Image lampGlow, surface, surfaceScaled;
+    juce::Image lampGlow;
+    Sprite beadOff, beadOn, lampOff, lampOn;
     juce::Rectangle<float> headsArea;
     int choice = DendriteProcessor::defaultItch;
     float repetition = 0.0f, progress = 0.0f, reveal = 0.0f;

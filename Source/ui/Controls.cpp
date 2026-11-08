@@ -9,6 +9,9 @@ namespace
     const auto& headNames = dendrite::Heads::names;
     constexpr int heads = dendrite::Heads::count;
     constexpr int cells = dendrite::Engine::frameChoices;
+    constexpr float beadSize = 17.0f, lampSize = 24.0f; // sprite sizes: the object fills ~78% of each
+
+    juce::Image load (const void* data, int size) { return juce::ImageCache::getFromMemory (data, size); }
 
 } // namespace
 
@@ -19,7 +22,25 @@ ItchStrip::ItchStrip (DendriteProcessor& p)
 {
     link.sendInitialUpdate();
     lampGlow = makeGlow (colour::red, 64);
-    surface = juce::ImageCache::getFromMemory (BinaryData::bar_png, BinaryData::bar_pngSize);
+    beadOff.source = load (BinaryData::beadoff_png, BinaryData::beadoff_pngSize);
+    beadOn.source = load (BinaryData::beadon_png, BinaryData::beadon_pngSize);
+    lampOff.source = load (BinaryData::lampoff_png, BinaryData::lampoff_pngSize);
+    lampOn.source = load (BinaryData::lampon_png, BinaryData::lampon_pngSize);
+}
+
+void ItchStrip::Sprite::draw (juce::Graphics& g, juce::Point<float> centre, float size, float opacity)
+{
+    if (opacity <= 0.003f || ! source.isValid())
+        return;
+    const float px = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const int side = std::max (1, juce::roundToInt (size * px));
+    if (scaled.getWidth() != side)
+        scaled = source.rescaled (side, side, juce::Graphics::highResamplingQuality);
+    // snap to whole screen pixels so the copy stays sharp
+    const float x = std::round ((centre.x - 0.5f * size) * px) / px, y = std::round ((centre.y - 0.5f * size) * px) / px;
+    g.setOpacity (std::min (1.0f, opacity));
+    g.drawImageTransformed (scaled, juce::AffineTransform::scale (1.0f / px).translated (x, y));
+    g.setOpacity (1.0f);
 }
 
 void ItchStrip::tick()
@@ -55,17 +76,6 @@ int ItchStrip::dotAt (juce::Point<float> p) const
 
 void ItchStrip::paint (juce::Graphics& g)
 {
-    // the bar is a material: baked once in Blender (Resources/textures). It is rescaled once
-    // per window size to the screen's own pixels, so each frame it is a plain copy.
-    const float px = g.getInternalContext().getPhysicalPixelScaleFactor();
-    const int w = juce::roundToInt ((float) getWidth() * px), h = juce::roundToInt ((float) getHeight() * px);
-    if (w > 0 && h > 0)
-    {
-        if (surfaceScaled.getWidth() != w || surfaceScaled.getHeight() != h)
-            surfaceScaled = surface.rescaled (w, h, juce::Graphics::highResamplingQuality);
-        g.drawImageTransformed (surfaceScaled, juce::AffineTransform::scale (1.0f / px));
-    }
-
     const float y = dot (0).y;
 
     // the name, and nothing else
@@ -94,10 +104,14 @@ void ItchStrip::paint (juce::Graphics& g)
         const bool chosen = k == choice;
         if (chosen)
         {
-            g.setOpacity (k == 0 ? 0.15f : 0.5f);
-            g.drawImage (lampGlow, juce::Rectangle<float> (26.0f, 26.0f).withCentre (p));
-            g.setColour (k == 0 ? colour::inkDim : colour::red);
-            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (p));
+            // a ruby bead, glowing while the itch listens, dark glass when it is off
+            if (k > 0)
+            {
+                g.setOpacity (0.35f);
+                g.drawImage (lampGlow, juce::Rectangle<float> (30.0f, 30.0f).withCentre (p));
+                g.setOpacity (1.0f);
+            }
+            (k == 0 ? beadOff : beadOn).draw (g, p, beadSize, 1.0f);
         }
         else
         {
@@ -111,7 +125,7 @@ void ItchStrip::paint (juce::Graphics& g)
         {
             g.setColour ((chosen && k > 0 ? colour::redText : colour::red).withAlpha (alpha));
             g.setFont (fonts->make (chosen ? fonts->medium : fonts->regular, 11.5f));
-            g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), juce::Rectangle<float> (22.0f, 14.0f).withCentre (p.translated (0.0f, -15.0f)),
+            g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), juce::Rectangle<float> (22.0f, 14.0f).withCentre (p.translated (0.0f, -17.0f)),
                         juce::Justification::centred);
         }
     }
@@ -124,18 +138,18 @@ void ItchStrip::paint (juce::Graphics& g)
         {
             const juce::Point<float> c { headsArea.getX() + cw * ((float) k + 0.5f), y };
             const float lit = lamps[k];
-            g.setOpacity (lit);
-            g.drawImage (lampGlow, juce::Rectangle<float> (30.0f + 24.0f * lit, 30.0f + 24.0f * lit).withCentre (c));
-            g.setColour (colour::red.withAlpha (0.35f).interpolatedWith (colour::red, lit));
-            g.drawEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c), 0.9f);
-            g.setColour (colour::red.withAlpha (lit));
-            g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (c));
+            // a red jewel lamp in a black bezel: dark glass at rest, lit from inside as its head plays
+            g.setOpacity (0.7f * lit);
+            g.drawImage (lampGlow, juce::Rectangle<float> (34.0f + 24.0f * lit, 34.0f + 24.0f * lit).withCentre (c));
+            g.setOpacity (1.0f);
+            lampOff.draw (g, c, lampSize, 1.0f);
+            lampOn.draw (g, c, lampSize, lit);
             const float nameAlpha = std::max (lit, 0.5f * reveal);
             if (nameAlpha > 0.02f)
             {
                 g.setColour (colour::red.interpolatedWith (colour::redText, lit).withAlpha (nameAlpha));
                 g.setFont (fonts->make (fonts->regular, 11.0f, 0.04f));
-                g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 16.0f)),
+                g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 20.0f)),
                             juce::Justification::centred);
             }
         }
