@@ -51,7 +51,11 @@ juce_add_binary_data(dendrite_fonts
     SOURCES
         Resources/fonts/Inter-Light.ttf
         Resources/fonts/Inter-Regular.ttf
-        Resources/fonts/Inter-Medium.ttf)
+        Resources/fonts/Inter-Medium.ttf
+        Resources/lamps/bead-off.png
+        Resources/lamps/bead-on.png
+        Resources/lamps/lamp-off.png
+        Resources/lamps/lamp-on.png)
 
 target_sources(dendrite PRIVATE
     Source/Processor.cpp
