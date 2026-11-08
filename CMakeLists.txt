@@ -49,9 +49,10 @@ juce_add_binary_data(dendrite_fonts
     HEADER_NAME BinaryData.h
     NAMESPACE BinaryData
     SOURCES
-        Resources/fonts/Inter-Light.ttf
-        Resources/fonts/Inter-Regular.ttf
-        Resources/fonts/Inter-Medium.ttf
+        Resources/fonts/Urbanist-Light.ttf
+        Resources/fonts/Urbanist-Regular.ttf
+        Resources/fonts/Urbanist-Medium.ttf
+        Resources/fonts/FragmentMono-Regular.ttf
         Resources/lamps/bead-off.png
         Resources/lamps/bead-on.png
         Resources/lamps/lamp-off.png

@@ -1133,7 +1133,7 @@ void Field::paint (juce::Graphics& g)
         const auto r = inner();
         auto box = juce::Rectangle<float> (180.0f, 18.0f).withCentre (lp.translated (0.0f, lp.y < r.getBottom() - 40.0f ? 30.0f : -30.0f));
         g.setColour (colour::inkDim.withAlpha (0.85f * labelAlpha));
-        g.setFont (fonts->make (fonts->regular, 11.5f, 0.06f));
+        g.setFont (fonts->make (fonts->regular, 12.5f, 0.06f));
         g.drawText (text, box, juce::Justification::centred);
     }
 }
