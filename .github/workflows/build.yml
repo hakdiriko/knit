@@ -47,7 +47,7 @@ jobs:
 
       - name: Fetch pluginval
         run: |
-          curl -sSLf -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_TAG}/${{ matrix.pluginval-zip }}"
+          curl -sSLf --retry 4 --retry-delay 5 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_TAG}/${{ matrix.pluginval-zip }}"
           if [ "$RUNNER_OS" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
 
       - name: Validate VST3
