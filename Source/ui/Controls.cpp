@@ -1,4 +1,5 @@
 #include "Controls.h"
+#include "BinaryData.h"
 
 namespace dendrite::ui
 {
@@ -18,6 +19,7 @@ ItchStrip::ItchStrip (DendriteProcessor& p)
 {
     link.sendInitialUpdate();
     lampGlow = makeGlow (colour::red, 64);
+    surface = juce::ImageCache::getFromMemory (BinaryData::bar_png, BinaryData::bar_pngSize);
 }
 
 void ItchStrip::tick()
@@ -53,6 +55,17 @@ int ItchStrip::dotAt (juce::Point<float> p) const
 
 void ItchStrip::paint (juce::Graphics& g)
 {
+    // the bar is a material: baked once in Blender (Resources/textures). It is rescaled once
+    // per window size to the screen's own pixels, so each frame it is a plain copy.
+    const float px = g.getInternalContext().getPhysicalPixelScaleFactor();
+    const int w = juce::roundToInt ((float) getWidth() * px), h = juce::roundToInt ((float) getHeight() * px);
+    if (w > 0 && h > 0)
+    {
+        if (surfaceScaled.getWidth() != w || surfaceScaled.getHeight() != h)
+            surfaceScaled = surface.rescaled (w, h, juce::Graphics::highResamplingQuality);
+        g.drawImageTransformed (surfaceScaled, juce::AffineTransform::scale (1.0f / px));
+    }
+
     const float y = dot (0).y;
 
     // the name, and nothing else

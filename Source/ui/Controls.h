@@ -31,7 +31,7 @@ private:
     DendriteProcessor& processor;
     juce::SharedResourcePointer<Fonts> fonts;
     juce::ParameterAttachment link;
-    juce::Image lampGlow;
+    juce::Image lampGlow, surface, surfaceScaled;
     juce::Rectangle<float> headsArea;
     int choice = DendriteProcessor::defaultItch;
     float repetition = 0.0f, progress = 0.0f, reveal = 0.0f;
