@@ -100,12 +100,15 @@ private:
         int first = 0, count = 0, maxOrder = 1;
         double born = 0.0;
         float life = 40.0f, growIn = 8.0f, brightness = 0.2f;
+        float shiver = 0.0f; // a flash of light as a hit's wave passes through it
     };
     struct Fibre
     {
         juce::Point<float> rest, p, v, prev, flowVel;
         int parent = -1; // index within the strand, -1 for its root
         float length = 0.0f, bendRest = 0.0f;
+        float shake = 0.0f, shakeLast = 0.0f, shakeHz = 11.0f; // the tremor a passing wave leaves (px)
+        double shakeAt = -1.0;
         uint8_t depth = 0;
         uint16_t order = 0;
     };
@@ -138,6 +141,8 @@ private:
     void simulate (float dt);
     void seedStrand (Strand&, double now, bool midLife);
     void tickSparks (double now, float dt);
+    void tremor (juce::Point<float> origin, float strength, double at);
+    void tickTremors();
     juce::Colour growthColour (Kind, float vis) const;
     void paintTissue (juce::Graphics&);
     void paintGrowth (juce::Graphics&);
@@ -164,6 +169,15 @@ private:
     std::vector<Strand> strands;
     std::vector<Fibre> fibres;
     std::vector<Spark> sparks;
+
+    // every hit (and, softer, every repeat) sends a wave through the tissue from where it grew
+    struct Wave
+    {
+        juce::Point<float> origin;
+        double born = 0.0;
+        float strength = 0.0f, reached = 0.0f;
+    };
+    std::vector<Wave> waves;
     juce::Array<LitFibre> lit;
     double nextSpark = 0.0;
 
