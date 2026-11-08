@@ -871,19 +871,20 @@ void Field::simulate (float dt)
 
 juce::Colour Field::growthColour (Kind kind, float vis) const
 {
-    const auto redRamp = colour::red.interpolatedWith (colour::redText, std::min (1.0f, vis));
-    const auto greyRamp = colour::inkDim.interpolatedWith (colour::ink, std::min (1.0f, vis));
+    // monochrome, with one colour: the echo grows grey to white, and only the itch's
+    // heads grow red
+    vis = std::min (1.0f, vis);
     switch (kind)
     {
         case throwKind: return colour::ink;
-        case ghostKind: return red == Red::echo ? colour::inkDim : colour::red.withMultipliedBrightness (0.8f);
+        case ghostKind: return colour::red.withMultipliedBrightness (0.8f);
         case swarmKind:
         case screamKind:
         case laughKind:
-        case manipulateKind: return red == Red::echo ? colour::ink.interpolatedWith (colour::redText, 0.25f) : redRamp;
+        case manipulateKind: return colour::red.interpolatedWith (colour::redText, vis);
         case echoKind: break;
     }
-    return red == Red::echo ? redRamp : greyRamp;
+    return colour::inkDim.interpolatedWith (colour::ink, vis);
 }
 
 void Field::paintGrowth (juce::Graphics& g)

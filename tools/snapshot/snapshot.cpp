@@ -8,7 +8,6 @@
 //   DENDRITE_FRAMES=dir                also write frames at 30 fps (frame_00000.png ...)
 //   DENDRITE_FRAMES_FROM=t             ... starting at t seconds
 //   DENDRITE_AUDIO=out.wav             also write what came out of the plug-in
-//   DENDRITE_RED=echo|itch             where the one colour goes
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Processor.h"
 #include "Editor.h"
@@ -69,8 +68,6 @@ int main (int argc, char** argv)
 
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditor());
     auto* editor = dynamic_cast<DendriteEditor*> (base.get());
-    if (env ("DENDRITE_RED") == "itch")
-        editor->getField().setRed (dendrite::ui::Field::Red::itch);
     editor->setSize ((int) (DendriteEditor::designWidth * scale), (int) (DendriteEditor::designHeight * scale));
 
     std::unique_ptr<juce::AudioFormatWriter> audioOut;

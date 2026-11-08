@@ -51,10 +51,6 @@ public:
     void simulateTouch (juce::Point<float> unit, bool down);
     void simulateMove (juce::Point<float> unit);
 
-    // Where the one colour goes: on the echo's growth, or only on the itch.
-    enum class Red { echo, itch };
-    void setRed (Red r) { red = r; }
-
 private:
     enum Kind : uint8_t { echoKind, throwKind, screamKind, laughKind, manipulateKind, swarmKind, ghostKind };
 
@@ -153,7 +149,6 @@ private:
     juce::SharedResourcePointer<Fonts> fonts;
     juce::ParameterAttachment feedLink, spaceLink, throwLink;
     float feed = DendriteProcessor::defaultFeed, space = DendriteProcessor::defaultSpace;
-    Red red = Red::echo;
 
     Medium medium;
     std::vector<Joint> joints;

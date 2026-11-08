@@ -60,7 +60,7 @@ void ItchStrip::paint (juce::Graphics& g)
     g.setFont (fonts->make (fonts->light, 19.0f, 0.06f));
     g.drawText ("dendrite", juce::Rectangle<float> (30.0f, y - 14.0f, 150.0f, 26.0f), juce::Justification::centredLeft);
 
-    g.setColour (colour::inkFaint);
+    g.setColour (colour::redText.withAlpha (0.85f)); // the itch's things are the red ones
     g.setFont (fonts->make (fonts->regular, 11.5f, 0.08f));
     g.drawText ("itch", juce::Rectangle<float> (dotsLeft - 44.0f, y - 9.0f, 40.0f, 18.0f), juce::Justification::centredLeft);
 
@@ -88,7 +88,7 @@ void ItchStrip::paint (juce::Graphics& g)
         }
         else
         {
-            g.setColour (colour::inkFaint.withAlpha (0.8f));
+            g.setColour (colour::red.withAlpha (0.55f));
             g.fillEllipse (juce::Rectangle<float> (2.4f, 2.4f).withCentre (p));
         }
 
@@ -96,7 +96,7 @@ void ItchStrip::paint (juce::Graphics& g)
         const float alpha = chosen ? 0.9f : 0.55f * reveal;
         if (alpha > 0.02f)
         {
-            g.setColour ((chosen && k > 0 ? colour::redText : colour::inkDim).withAlpha (alpha));
+            g.setColour ((chosen && k > 0 ? colour::redText : colour::red).withAlpha (alpha));
             g.setFont (fonts->make (chosen ? fonts->medium : fonts->regular, 11.5f));
             g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), juce::Rectangle<float> (22.0f, 14.0f).withCentre (p.translated (0.0f, -15.0f)),
                         juce::Justification::centred);
@@ -113,14 +113,14 @@ void ItchStrip::paint (juce::Graphics& g)
             const float lit = lamps[k];
             g.setOpacity (lit);
             g.drawImage (lampGlow, juce::Rectangle<float> (30.0f + 24.0f * lit, 30.0f + 24.0f * lit).withCentre (c));
-            g.setColour (colour::line2.interpolatedWith (colour::red, lit));
+            g.setColour (colour::red.withAlpha (0.35f).interpolatedWith (colour::red, lit));
             g.drawEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (c), 0.9f);
             g.setColour (colour::red.withAlpha (lit));
             g.fillEllipse (juce::Rectangle<float> (5.0f, 5.0f).withCentre (c));
             const float nameAlpha = std::max (lit, 0.5f * reveal);
             if (nameAlpha > 0.02f)
             {
-                g.setColour (colour::inkDim.interpolatedWith (colour::redText, lit).withAlpha (nameAlpha));
+                g.setColour (colour::red.interpolatedWith (colour::redText, lit).withAlpha (nameAlpha));
                 g.setFont (fonts->make (fonts->regular, 11.0f, 0.04f));
                 g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 16.0f)),
                             juce::Justification::centred);
