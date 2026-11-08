@@ -84,7 +84,7 @@ void ItchStrip::paint (juce::Graphics& g)
     g.drawText ("dendrite", juce::Rectangle<float> (30.0f, y - 14.0f, 150.0f, 26.0f), juce::Justification::centredLeft);
 
     g.setColour (colour::redText.withAlpha (0.85f)); // the itch's things are the red ones
-    g.setFont (fonts->make (fonts->regular, 11.5f, 0.08f));
+    g.setFont (fonts->make (fonts->regular, 12.5f, 0.08f));
     g.drawText ("itch", juce::Rectangle<float> (dotsLeft - 44.0f, y - 9.0f, 40.0f, 18.0f), juce::Justification::centredLeft);
 
     // the frame it listens through fills along the line, warmer as the music repeats
@@ -124,7 +124,7 @@ void ItchStrip::paint (juce::Graphics& g)
         if (alpha > 0.02f)
         {
             g.setColour ((chosen && k > 0 ? colour::redText : colour::red).withAlpha (alpha));
-            g.setFont (fonts->make (chosen ? fonts->medium : fonts->regular, 11.5f));
+            g.setFont (fonts->make (fonts->mono, 11.5f)); // numbers are mono
             g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), juce::Rectangle<float> (22.0f, 14.0f).withCentre (p.translated (0.0f, -17.0f)),
                         juce::Justification::centred);
         }
@@ -148,7 +148,7 @@ void ItchStrip::paint (juce::Graphics& g)
             if (nameAlpha > 0.02f)
             {
                 g.setColour (colour::red.interpolatedWith (colour::redText, lit).withAlpha (nameAlpha));
-                g.setFont (fonts->make (fonts->regular, 11.0f, 0.04f));
+                g.setFont (fonts->make (fonts->regular, 12.0f, 0.04f));
                 g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 20.0f)),
                             juce::Justification::centred);
             }

@@ -20,12 +20,12 @@ namespace colour
     const juce::Colour redText { 0xffcf3a2e };  // the same red, lifted for small type and loud marks on black
 } // namespace colour
 
-// The embedded Inter faces (SIL Open Font License, see Resources/fonts/OFL.txt), so the
-// window looks the same on every machine.
+// dendrite's two faces, embedded so the window looks the same on every machine (both SIL Open
+// Font License, see Resources/fonts): Urbanist for words, Fragment Mono for numbers.
 struct Fonts
 {
     Fonts();
-    juce::Typeface::Ptr light, regular, medium;
+    juce::Typeface::Ptr light, regular, medium, mono;
 
     juce::Font make (const juce::Typeface::Ptr& face, float height, float tracking = 0.0f) const
     {

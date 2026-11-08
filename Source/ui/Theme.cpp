@@ -5,9 +5,10 @@ namespace dendrite::ui
 {
 Fonts::Fonts()
 {
-    light = juce::Typeface::createSystemTypefaceFor (BinaryData::InterLight_ttf, BinaryData::InterLight_ttfSize);
-    regular = juce::Typeface::createSystemTypefaceFor (BinaryData::InterRegular_ttf, BinaryData::InterRegular_ttfSize);
-    medium = juce::Typeface::createSystemTypefaceFor (BinaryData::InterMedium_ttf, BinaryData::InterMedium_ttfSize);
+    light = juce::Typeface::createSystemTypefaceFor (BinaryData::UrbanistLight_ttf, BinaryData::UrbanistLight_ttfSize);
+    regular = juce::Typeface::createSystemTypefaceFor (BinaryData::UrbanistRegular_ttf, BinaryData::UrbanistRegular_ttfSize);
+    medium = juce::Typeface::createSystemTypefaceFor (BinaryData::UrbanistMedium_ttf, BinaryData::UrbanistMedium_ttfSize);
+    mono = juce::Typeface::createSystemTypefaceFor (BinaryData::FragmentMonoRegular_ttf, BinaryData::FragmentMonoRegular_ttfSize);
 }
 
 LookAndFeel::LookAndFeel()
