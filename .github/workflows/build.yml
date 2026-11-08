@@ -48,7 +48,7 @@ jobs:
 
       - name: Fetch pluginval
         run: |
-          fetch() { curl -sSLf --retry 3 --retry-delay 5 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$1/${{ matrix.pluginval-zip }}"; }
+          fetch() { curl -sSLf --retry 10 --retry-delay 15 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$1/${{ matrix.pluginval-zip }}"; }
           fetch "$PLUGINVAL_TAG" || { echo "::warning::pluginval $PLUGINVAL_TAG could not be downloaded; validating with $PLUGINVAL_FALLBACK"; fetch "$PLUGINVAL_FALLBACK"; }
           if [ "$RUNNER_OS" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
 
