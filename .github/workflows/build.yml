@@ -13,6 +13,7 @@ concurrency:
 
 env:
   PLUGINVAL_TAG: v1.0.4
+  PLUGINVAL_FALLBACK: v1.0.3 # used only if GitHub fails to serve PLUGINVAL_TAG's zip
   BUNDLE_DIR: build/dendrite_artefacts/Release
   MANUAL: docs/manual/dendrite-manual.pdf
 
@@ -47,7 +48,8 @@ jobs:
 
       - name: Fetch pluginval
         run: |
-          curl -sSLf --retry 4 --retry-delay 5 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_TAG}/${{ matrix.pluginval-zip }}"
+          fetch() { curl -sSLf --retry 3 --retry-delay 5 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$1/${{ matrix.pluginval-zip }}"; }
+          fetch "$PLUGINVAL_TAG" || { echo "::warning::pluginval $PLUGINVAL_TAG could not be downloaded; validating with $PLUGINVAL_FALLBACK"; fetch "$PLUGINVAL_FALLBACK"; }
           if [ "$RUNNER_OS" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
 
       - name: Validate VST3
