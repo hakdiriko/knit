@@ -1,5 +1,5 @@
 // Colours and type for dendrite's window: true black, warm ivory light, manganese-ochre
-// growth, a cool tint for space and a coral for the itch.
+// growth, a cool tint for space and a dark red for the itch.
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -18,7 +18,8 @@ namespace colour
     const juce::Colour ochre { 0xffd9a35b };
     const juce::Colour ochreHot { 0xfff4cd8c };
     const juce::Colour cool { 0xff8cbccb };
-    const juce::Colour coral { 0xffeb6a50 };
+    const juce::Colour red { 0xffb3241b };      // the itch: dark red
+    const juce::Colour redText { 0xffcf3a2e };  // the same red, lifted for small type on black
 } // namespace colour
 
 // The embedded Inter faces (SIL Open Font License, see Resources/fonts/OFL.txt), so the

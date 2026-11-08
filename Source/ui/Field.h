@@ -8,7 +8,7 @@
 //
 // The growth is a soft body. Young branches hang on the light and trail behind it when
 // you drag; older ones root into the tissue, so dragging stretches them thin until they
-// peel off and stay where they are. Throws grow white; the itch's heads grow coral.
+// peel off and stay where they are. Throws grow white; the itch's heads grow dark red.
 //
 // Throw has no button: grab the light to move it, touch anywhere else in the dark to throw
 // (a nerve runs from your touch to the light). The throw parameter stays mappable in Live.
@@ -98,7 +98,7 @@ private:
     {
         int strand = -1, fibre = -1;
         float along = 0.0f, speed = 100.0f, level = 0.5f;
-        bool itch = false; // impulses run coral while the itch plays
+        bool itch = false; // impulses run dark red while the itch plays
     };
 
     juce::Rectangle<float> inner() const;
@@ -148,7 +148,7 @@ private:
     double lastScream = 0.0, lastManipulate = 0.0, lastSwarm = 0.0, lastGhost = 0.0, ghostStart = 0.0;
     float screamTurn = 1.0f, ghostSide = 1.0f;
 
-    juce::Image glowOchre, glowIvory, glowCoral, glowCool;
+    juce::Image glowOchre, glowIvory, glowRed, glowCool;
     juce::Point<float> lastLight, lightStep, lastMouse, touch;
     float lightSpeed = 0.0f;
     bool dragging = false, hovering = false, touching = false, throwHeld = false, grabbedLight = false;

@@ -47,7 +47,7 @@ Field::Field (DendriteProcessor& p)
     fibres.resize ((size_t) (strandCount * fibresPerStrand));
     glowOchre = makeGlow (colour::ochreHot, 64);
     glowIvory = makeGlow (colour::ink, 64);
-    glowCoral = makeGlow (colour::coral, 64);
+    glowRed = makeGlow (colour::red, 64);
     glowCool = makeGlow (colour::cool, 64);
     setMouseCursor (juce::MouseCursor::CrosshairCursor);
     setRepaintsOnMouseActivity (false);
@@ -318,7 +318,7 @@ void Field::paintTissue (juce::Graphics& g)
         const auto p = a + (e - a) * sp.along;
         const float fade = std::min (1.0f, (float) (now - s.born) / 3.0f) * sp.level;
         g.setOpacity (0.55f * fade);
-        g.drawImage (sp.itch ? glowCoral : glowOchre, juce::Rectangle<float> (12.0f, 12.0f).withCentre (p));
+        g.drawImage (sp.itch ? glowRed : glowOchre, juce::Rectangle<float> (12.0f, 12.0f).withCentre (p));
         g.setColour (colour::ink.withAlpha (0.7f * fade));
         g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre (p));
     }
@@ -522,7 +522,7 @@ void Field::growHeads (double t)
         return addJoint (j);
     };
 
-    // scream: a coral tendril climbs from the light, wandering
+    // scream: a dark red tendril climbs from the light, wandering
     if (lamp[0] > 0.04f)
     {
         if (lastLamp[0] <= 0.04f)
@@ -746,9 +746,9 @@ void Field::paintGrowth (juce::Graphics& g)
         {
             case throwKind: c = colour::ink; glow = &glowIvory; break;
             case screamKind:
-            case laughKind: c = colour::coral; glow = &glowCoral; break;
-            case manipulateKind: c = colour::coral.interpolatedWith (colour::cool, 0.45f); glow = &glowCoral; break;
-            case swarmKind: c = colour::coral.interpolatedWith (colour::ink, 0.4f); glow = &glowCoral; break;
+            case laughKind: c = colour::red; glow = &glowRed; break;
+            case manipulateKind: c = colour::red.interpolatedWith (colour::cool, 0.45f); glow = &glowRed; break;
+            case swarmKind: c = colour::red.interpolatedWith (colour::ink, 0.4f); glow = &glowRed; break;
             case ghostKind: c = colour::cool.interpolatedWith (colour::ink, 0.3f); glow = &glowCool; break;
             case echoKind: break;
         }
