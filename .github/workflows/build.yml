@@ -46,10 +46,27 @@ jobs:
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release --parallel 4
 
+      # GitHub's release downloads can fail for minutes at a time (504), so keep the zips in
+      # the Actions cache once fetched, and fall back to the previous pluginval if needed.
+      - name: Cache pluginval
+        uses: actions/cache@v4
+        with:
+          path: pluginval-cache
+          key: pluginval-${{ runner.os }}-${{ env.PLUGINVAL_TAG }}-${{ env.PLUGINVAL_FALLBACK }}
+
       - name: Fetch pluginval
         run: |
-          fetch() { curl -sSLf --retry 10 --retry-delay 15 --retry-all-errors -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/$1/${{ matrix.pluginval-zip }}"; }
-          fetch "$PLUGINVAL_TAG" || { echo "::warning::pluginval $PLUGINVAL_TAG could not be downloaded; validating with $PLUGINVAL_FALLBACK"; fetch "$PLUGINVAL_FALLBACK"; }
+          mkdir -p pluginval-cache
+          fetch() {
+            [ -s "pluginval-cache/$1.zip" ] && return 0
+            curl -sSLf --retry 10 --retry-delay 15 --retry-all-errors -o "pluginval-cache/$1.part" \
+              "https://github.com/Tracktion/pluginval/releases/download/$1/${{ matrix.pluginval-zip }}" \
+              && mv "pluginval-cache/$1.part" "pluginval-cache/$1.zip"
+          }
+          if fetch "$PLUGINVAL_TAG"; then use="$PLUGINVAL_TAG"
+          else echo "::warning::pluginval $PLUGINVAL_TAG could not be downloaded; validating with $PLUGINVAL_FALLBACK"; fetch "$PLUGINVAL_FALLBACK"; use="$PLUGINVAL_FALLBACK"; fi
+          rm -f pluginval-cache/*.part
+          cp "pluginval-cache/$use.zip" pluginval.zip
           if [ "$RUNNER_OS" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
 
       - name: Validate VST3
