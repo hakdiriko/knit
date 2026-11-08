@@ -9,11 +9,11 @@
   @font-face { font-family: "Inter"; font-weight: 400; src: url("../../Resources/fonts/Inter-Regular.ttf"); }
   @font-face { font-family: "Inter"; font-weight: 500; src: url("../../Resources/fonts/Inter-Medium.ttf"); }
 
-  /* true black; one light (warm white), one colour for the itch */
+  /* true black; one light (warm white), one dark red for the itch */
   :root {
     --black: #000; --rule: #1c1c1c; --rule2: #2e2e2e;
     --light: #f6f3ec; --dim: #8d8a84; --faint: #4f4d49;
-    --glow: #ffe2b0; --itch: #f08a72;
+    --glow: #ffe2b0; --itch: #b3241b; --itchText: #cf3a2e;
   }
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -55,7 +55,7 @@
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 0 2.6mm rgba(255, 226, 176, 0.35);
   }
-  .n.itch { border-color: var(--itch); color: var(--itch); box-shadow: 0 0 2.6mm rgba(240, 138, 114, 0.35); }
+  .n.itch { border-color: var(--itch); color: var(--itch); box-shadow: 0 0 2.6mm rgba(179, 36, 27, 0.55); }
 
   main { margin-top: 5mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm 7mm; flex: 1; min-height: 0; align-content: start; }
   h2 {
@@ -64,13 +64,13 @@
     margin-bottom: 2mm;
   }
   h2 i { font-style: normal; color: var(--glow); }
-  h2 i.itch { color: var(--itch); }
+  h2 i.itch { color: var(--itchText); }
   p + p { margin-top: 1.8mm; }
   b { font-weight: 400; color: var(--light); }
   .scale { display: block; color: var(--faint); letter-spacing: 0.02em; }
   .scale em { font-style: normal; color: var(--dim); }
   .heads { display: grid; grid-template-columns: 17mm 1fr; margin: 1.8mm 0; }
-  .heads dt { color: var(--itch); }
+  .heads dt { color: var(--itchText); }
 
   .low { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm;
          padding-top: 4mm; border-top: 0.25mm solid var(--rule); }
@@ -92,17 +92,17 @@
 
   <div class="top">
     <p class="lede">
-      <span>a dub echo. dotted, in time, safe in mono.</span>
-      <span>each repeat steps a little further out:</span>
-      <span>inside your head, then all around it.</span>
-      <span class="soft">repeat yourself too long, and it itches.</span>
+      <span>let's look at a sound. there. not there.</span>
+      <span>give it two tape heads, a dotted ⅛ and a ¼, and it comes back,</span>
+      <span>each time a little further out: inside your head, then around it.</span>
+      <span class="soft">play the same thing too long and it gets an itch.</span>
     </p>
     <section class="start">
       <h2>start</h2>
-      <p>put it straight on a track. no send, no mix knob.</p>
+      <p>put it on a track. no send. no mix knob.</p>
       <p>play. the default already works.</p>
       <p>touch the dark on the last hit of a phrase.</p>
-      <p>move the light while it plays.</p>
+      <p>now move the light while it plays.</p>
     </section>
   </div>
 
@@ -116,33 +116,33 @@
   <main>
     <section>
       <h2><i>1</i>light</h2>
-      <p>drag it.</p>
-      <p><b>up</b> is how long the repeats live.
+      <p>this point is the whole interface. drag it.</p>
+      <p><b>up</b>, the repeats live longer.
         <span class="scale">whisper <em>·</em> dub <em>·</em> drown <em>·</em> endless</span></p>
-      <p><b>right</b> is where they live.
+      <p><b>right</b>, they live further away.
         <span class="scale">inside <em>·</em> around <em>·</em> envelop <em>·</em> beyond</span></p>
-      <p>every hit grows a dendrite from it. drag, and the young ones follow. the old ones peel off and stay.</p>
+      <p>every hit grows a dendrite. young stems follow the light, old ones peel off and die. yours do the same, only smaller.</p>
     </section>
 
     <section>
       <h2><i>2</i>throw</h2>
-      <p><b>touch the dark and hold.</b> a nerve runs to the light, and what is playing falls into the echo, louder, off to one side.</p>
-      <p><b>let go.</b> it drifts home over two bars.</p>
-      <p>at the bottom of the light, only what you throw gets in.</p>
+      <p><b>touch the dark and hold.</b> a nerve runs from your finger to the light, and what is playing is thrown into the echo, louder, off to one side.</p>
+      <p><b>let go.</b> it falls home over two bars.</p>
+      <p>light at the bottom: only what you throw gets in. dub engineers call it a closed send.</p>
     </section>
 
     <section>
       <h2><i class="itch">3</i>itch</h2>
       <p>how long it can stand the same thing. drag the dots: <b>¼&nbsp;bar to 8&nbsp;bars</b>, or off.</p>
-      <p>it listens, grows restless, takes the loudest hit. three of five heads answer:</p>
+      <p>when bars start to look alike, it takes the loudest hit. three of five heads answer:</p>
       <dl class="heads">
         <dt>scream</dt><dd>rises and circles you</dd>
         <dt>laugh</dt><dd>ha ha ha, side to side, falling</dd>
-        <dt>manipulate</dt><dd>a hand drags the reel</dd>
-        <dt>swarm</dt><dd>grains that fall into step</dd>
-        <dt>ghost</dt><dd>a whisper behind your head</dd>
+        <dt>manipulate</dt><dd>a hand on the reel</dd>
+        <dt>swarm</dt><dd>a dozen grains fall into step</dd>
+        <dt>ghost</dt><dd>a whisper behind you</dd>
       </dl>
-      <p>then quiet. headphones show it best.</p>
+      <p>then quiet. on headphones you can point at each one. that's your brain.</p>
     </section>
 
 
@@ -156,8 +156,8 @@
 
       <section>
         <h2>beneath</h2>
-        <p>two tape heads, the dotted ⅛ and the ¼, in one loop. each pass: less top, thinner lows, a little grit, a wow that never repeats.</p>
-        <p>space only moves the sides. fold to mono and a clean dub echo stays.</p>
+        <p>each pass loses top and low mids, gains grit, and wobbles with a wow that never repeats.</p>
+        <p>space only moves the sides, so mono stays a clean dub echo. a scandalous simplification, but true.</p>
       </section>
 
       <section>
