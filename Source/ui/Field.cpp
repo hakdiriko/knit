@@ -6,9 +6,12 @@ namespace
 {
     constexpr float stripHeight = 72.0f; // the itch strip lies over the bottom of the field
     constexpr float leftMargin = 46.0f, rightMargin = 46.0f, topMargin = 40.0f, bottomMargin = 40.0f + stripHeight;
-    constexpr size_t maxJoints = 900, maxDue = 1600, maxSparks = 48;
+    constexpr int jointBudget = 1100; // where pruning gets strict; the pool has room above it
+    constexpr size_t maxJoints = 2400, maxDue = 1600, maxSparks = 48, maxTrees = 96;
     constexpr int strandCount = 28, fibresPerStrand = 60;
     constexpr float grabRadius = 30.0f;
+    constexpr int substeps = 6;
+    constexpr float maxSpeed = 2500.0f; // px/s: a guard, never reached in normal use
 
     juce::Point<float> rotated (juce::Point<float> v, float a)
     {
@@ -22,11 +25,51 @@ namespace
         return l > 1.0e-6f ? v / l : juce::Point<float> { 0.0f, -1.0f };
     }
 
-    // a point along a quadratic curve, and the control point of its first part
     juce::Point<float> quad (juce::Point<float> a, juce::Point<float> c, juce::Point<float> e, float t)
     {
         const float u = 1.0f - t;
         return a * (u * u) + c * (2.0f * u * t) + e * (t * t);
+    }
+
+    // XPBD with one projection per substep ("small steps"): a constraint of stiffness k
+    // (1/s², per unit mass) has compliance alpha = 1/k, scaled by 1/h².
+    float alphaTilde (float stiffness, float h) { return stiffness > 0.0f ? 1.0f / (stiffness * h * h) : 1.0e9f; }
+
+    // keep two points `rest` apart; returns how stretched the pair is (length / rest)
+    float solveDistance (juce::Point<float>& a, float wa, juce::Point<float>& b, float wb, float rest, float at)
+    {
+        const auto d = b - a;
+        const float len = d.getDistanceFromOrigin();
+        if (len < 1.0e-5f || wa + wb <= 0.0f)
+            return 1.0f;
+        const float lambda = -(len - rest) / (wa + wb + at);
+        const auto n = d / len;
+        a -= n * (wa * lambda);
+        b += n * (wb * lambda);
+        return len / std::max (1.0e-3f, rest);
+    }
+
+    // pull a point towards a target
+    void solveAnchor (juce::Point<float>& p, juce::Point<float> target, float at)
+    {
+        p += (target - p) * (1.0f / (1.0f + at));
+    }
+
+    juce::Point<float> clampSpeed (juce::Point<float> v)
+    {
+        const float s = v.getDistanceFromOrigin();
+        return s > maxSpeed ? v * (maxSpeed / s) : v;
+    }
+
+    // how far a strand has grown in (or pulled back), in fibre orders
+    float grownOrder (double age, float life, float growIn, int maxOrder)
+    {
+        const float a = (float) age;
+        float grown = std::min (1.0f, a / growIn) * (float) maxOrder;
+        const float left = life - a;
+        if (left < 7.0f)
+            grown = std::min (grown, (float) maxOrder * std::max (0.0f, left / 7.0f));
+        return grown;
     }
 } // namespace
 
@@ -41,15 +84,16 @@ Field::Field (DendriteProcessor& p)
     spaceLink.sendInitialUpdate();
     throwLink.sendInitialUpdate();
     joints.reserve (maxJoints);
+    freeJoints.reserve (maxJoints);
+    jointFlows.reserve (maxJoints);
+    trees.resize (maxTrees);
     due.reserve (maxDue);
     sparks.reserve (maxSparks);
     strands.resize (strandCount);
     fibres.resize ((size_t) (strandCount * fibresPerStrand));
-    glowOchre = makeGlow (colour::ochreHot, 64);
-    glowIvory = makeGlow (colour::ink, 64);
+    glowWhite = makeGlow (colour::ink, 64);
     glowRed = makeGlow (colour::red, 64);
-    glowCool = makeGlow (colour::cool, 64);
-    setMouseCursor (juce::MouseCursor::CrosshairCursor);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
     setRepaintsOnMouseActivity (false);
 }
 
@@ -85,10 +129,9 @@ float Field::gauss()
 
 void Field::resized()
 {
-    const int w = getWidth(), h = getHeight();
-    if (w <= 0 || h <= 0)
+    if (getWidth() <= 0 || getHeight() <= 0)
         return;
-
+    medium.setSize ((float) getWidth(), (float) getHeight());
     lastLight = light();
     for (auto& s : strands)
         seedStrand (s, now, true);
@@ -96,15 +139,6 @@ void Field::resized()
 
 //==============================================================================
 // The tissue
-
-juce::Point<float> Field::flow (juce::Point<float> p, float t) const
-{
-    // a few slow travelling waves: coherent, so neighbouring strands sway together
-    return { 3.4f * std::sin (0.011f * p.y + 0.29f * t + 1.3f) + 2.2f * std::sin (0.023f * p.x - 0.17f * t + 0.4f)
-                 + 1.1f * std::sin (0.043f * (p.x + p.y) + 0.53f * t),
-             3.1f * std::sin (0.013f * p.x - 0.23f * t + 2.1f) + 2.0f * std::sin (0.021f * p.y + 0.19f * t + 5.0f)
-                 + 1.0f * std::sin (0.037f * (p.x - p.y) - 0.47f * t) };
-}
 
 void Field::seedStrand (Strand& s, double t, bool midLife)
 {
@@ -135,10 +169,22 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
         angle = random.nextFloat() * juce::MathConstants<float>::twoPi;
     }
 
+    auto place = [&] (int me, juce::Point<float> q, int parent, uint8_t depth, uint16_t order) {
+        auto& f = fibres[(size_t) (s.first + me)];
+        f.rest = f.p = f.prev = q;
+        f.v = f.flowVel = {};
+        f.parent = parent;
+        f.depth = depth;
+        f.order = order;
+        f.length = parent >= 0 ? q.getDistanceFrom (fibres[(size_t) (s.first + parent)].rest) : 0.0f;
+        const int grand = parent >= 0 ? fibres[(size_t) (s.first + parent)].parent : -1;
+        f.bendRest = grand >= 0 ? q.getDistanceFrom (fibres[(size_t) (s.first + grand)].rest) : 0.0f;
+    };
+
     struct Arm { juce::Point<float> p; float angle; int parent; uint8_t depth; int steps; uint16_t order; };
     Arm stack[24];
     int top = 0;
-    fibres[(size_t) s.first] = { start, -1, 0, 0 };
+    place (0, start, -1, 0, 0);
     s.count = 1;
     stack[top++] = { start, angle, 0, 0, 10 + random.nextInt (22), 0 };
     const float wander = 0.18f + 0.3f * random.nextFloat();
@@ -151,7 +197,7 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
             const float len = (6.0f + 9.0f * random.nextFloat()) * std::pow (0.86f, (float) arm.depth);
             const auto q = arm.p + juce::Point<float> (std::cos (arm.angle), std::sin (arm.angle)) * len;
             const int me = s.count++;
-            fibres[(size_t) (s.first + me)] = { q, arm.parent, arm.depth, ++arm.order };
+            place (me, q, arm.parent, arm.depth, ++arm.order);
             s.maxOrder = std::max (s.maxOrder, (int) arm.order);
             arm.parent = me;
             arm.p = q;
@@ -166,47 +212,21 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
     s.life = 30.0f + 50.0f * random.nextFloat();
     s.growIn = 5.0f + 9.0f * random.nextFloat();
     s.brightness = random.nextFloat() < 0.1f ? 0.34f : 0.08f + 0.17f * random.nextFloat();
-    const float hue = random.nextFloat();
-    s.colour = hue < 0.12f ? colour::cool.interpolatedWith (colour::tissue, 0.5f)
-             : hue < 0.3f ? colour::inkDim
-                          : colour::tissue;
     s.born = midLife ? t - (double) (random.nextFloat() * s.life * 0.85f) : t;
 }
 
-juce::Point<float> Field::fibreAt (const Strand& s, int i) const
-{
-    const auto& f = fibres[(size_t) (s.first + i)];
-    return f.rest + flow (f.rest, (float) now) * (0.35f + 0.3f * (float) f.depth);
-}
-
-namespace
-{
-    // how far a strand has grown in (or retracted), in fibre orders
-    float grownOrder (double age, float life, float growIn, int maxOrder)
-    {
-        const float a = (float) age;
-        float grown = std::min (1.0f, a / growIn) * (float) maxOrder;
-        const float left = life - a;
-        if (left < 7.0f)
-            grown = std::min (grown, (float) maxOrder * std::max (0.0f, left / 7.0f));
-        return grown;
-    }
-} // namespace
-
-void Field::tickTissue (double t, float dt)
+void Field::tickSparks (double t, float dt)
 {
     for (auto& s : strands)
         if (t - s.born > (double) s.life)
             seedStrand (s, t, false);
 
-    // impulses run along the strands toward their roots, more of them when the echo speaks
+    // impulses run along the strands toward their roots: more when the echo speaks, while
+    // throwing, and in red while the itch plays
     auto& d = processor.display;
     const float out = d.outLevel.load (std::memory_order_relaxed);
     if (t >= nextSpark && sparks.size() < maxSparks)
     {
-        float itchLit = 0.0f;
-        for (const auto& lamp : d.lamps)
-            itchLit = std::max (itchLit, lamp.load (std::memory_order_relaxed));
         const float rate = 0.35f + 7.0f * std::min (1.0f, 3.0f * out) + 10.0f * throwGlow + 8.0f * itchLit;
         nextSpark = t - std::log (std::max (1.0e-4f, random.nextFloat())) / rate;
         const int si = random.nextInt (strandCount);
@@ -225,8 +245,7 @@ void Field::tickTissue (double t, float dt)
         bool dead = f.parent < 0;
         if (! dead)
         {
-            const float len = std::max (1.0f, f.rest.getDistanceFrom (fibres[(size_t) (s.first + f.parent)].rest));
-            sp.along += sp.speed * dt / len;
+            sp.along += sp.speed * dt / std::max (1.0f, f.length);
             while (sp.along >= 1.0f && ! dead)
             {
                 sp.along -= 1.0f;
@@ -272,8 +291,8 @@ void Field::paintTissue (juce::Graphics& g)
             const float o = (float) f.order;
             if (o - 1.0f > grown)
                 continue;
-            const auto a = fibreAt (s, f.parent);
-            auto e = fibreAt (s, i);
+            const auto a = fibres[(size_t) (s.first + f.parent)].p;
+            auto e = f.p;
             if (o > grown)
                 e = a + (e - a) * (grown - (o - 1.0f));
             auto& path = paths[std::min<int> (2, f.depth)];
@@ -286,10 +305,8 @@ void Field::paintTissue (juce::Graphics& g)
             {
                 const float boost = std::exp (-d2 / sigma2) * reveal;
                 if (boost > 0.03f)
-                {
-                    lit.add ({ { a, e }, s.colour.interpolatedWith (colour::ochreHot, 0.5f).withAlpha (std::min (0.8f, boost * (0.25f + 1.6f * s.brightness))),
+                    lit.add ({ { a, e }, colour::ink.withAlpha (std::min (0.7f, boost * (0.2f + 1.4f * s.brightness))),
                                f.depth == 0 ? 1.3f : (f.depth == 1 ? 0.95f : 0.7f) });
-                }
             }
         }
         const float widths[] = { 1.3f, 0.9f, 0.6f };
@@ -297,7 +314,7 @@ void Field::paintTissue (juce::Graphics& g)
         {
             if (paths[k].isEmpty())
                 continue;
-            g.setColour (s.colour.withAlpha (alpha * (k == 0 ? 1.0f : (k == 1 ? 0.8f : 0.6f))));
+            g.setColour (colour::tissue.withAlpha (alpha * (k == 0 ? 1.0f : (k == 1 ? 0.8f : 0.6f))));
             g.strokePath (paths[k], juce::PathStrokeType (widths[k], juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
     }
@@ -314,12 +331,12 @@ void Field::paintTissue (juce::Graphics& g)
         const auto& f = fibres[(size_t) (s.first + sp.fibre)];
         if (f.parent < 0)
             continue;
-        const auto a = fibreAt (s, sp.fibre), e = fibreAt (s, f.parent);
+        const auto a = f.p, e = fibres[(size_t) (s.first + f.parent)].p;
         const auto p = a + (e - a) * sp.along;
         const float fade = std::min (1.0f, (float) (now - s.born) / 3.0f) * sp.level;
-        g.setOpacity (0.55f * fade);
-        g.drawImage (sp.itch ? glowRed : glowOchre, juce::Rectangle<float> (12.0f, 12.0f).withCentre (p));
-        g.setColour (colour::ink.withAlpha (0.7f * fade));
+        g.setOpacity ((sp.itch ? 0.8f : 0.45f) * fade);
+        g.drawImage (sp.itch ? glowRed : glowWhite, juce::Rectangle<float> (12.0f, 12.0f).withCentre (p));
+        g.setColour ((sp.itch ? colour::redText : colour::ink).withAlpha (0.7f * fade));
         g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre (p));
     }
 }
@@ -332,29 +349,90 @@ int Field::addJoint (Joint& j)
     j.uid = nextUid++;
     j.alive = true;
     j.prev = j.p;
-    for (size_t i = 0; i < joints.size(); ++i)
-        if (! joints[i].alive)
-        {
-            joints[i] = j;
-            return (int) i;
-        }
+    ++aliveJoints;
+    if (! freeJoints.empty())
+    {
+        const int i = freeJoints.back();
+        freeJoints.pop_back();
+        joints[(size_t) i] = j;
+        return i;
+    }
     if (joints.size() < maxJoints)
     {
         joints.push_back (j);
         return (int) joints.size() - 1;
     }
+    --aliveJoints;
     return -1;
 }
 
-bool Field::parentOf (const Joint& j, Joint*& out)
+Field::Joint* Field::parentOf (const Joint& j)
 {
     if (j.parent < 0 || j.parent >= (int) joints.size())
-        return false;
+        return nullptr;
     auto& p = joints[(size_t) j.parent];
-    if (! p.alive || p.uid != j.parentUid)
-        return false;
-    out = &p;
-    return true;
+    return p.alive && p.uid == j.parentUid ? &p : nullptr;
+}
+
+int Field::newTree (juce::Point<float> centre, float reach, double t)
+{
+    // reuse the oldest tree's slot
+    int slot = 0;
+    for (int i = 1; i < (int) trees.size(); ++i)
+        if (trees[(size_t) i].born < trees[(size_t) slot].born)
+            slot = i;
+    auto& tree = trees[(size_t) slot];
+    tree.uid = nextUid++;
+    tree.born = t;
+    tree.reach = reach;
+
+    // a lopsided cloud: an ellipse at a random angle, thinner near the light, sometimes
+    // pushed off to one side, so the tree has somewhere it wants to go
+    const float angle = random.nextFloat() * juce::MathConstants<float>::twoPi;
+    const float squash = 0.35f + 0.65f * random.nextFloat();
+    const auto lean = juce::Point<float> (std::cos (angle), std::sin (angle)) * (reach * 0.45f * random.nextFloat());
+    const auto bounds = getLocalBounds().toFloat().reduced (10.0f).withTrimmedBottom (stripHeight);
+    for (int k = 0; k < Tree::points; ++k)
+    {
+        const float a = random.nextFloat() * juce::MathConstants<float>::twoPi;
+        const float r = reach * (0.2f + 0.8f * std::sqrt (random.nextFloat()));
+        const auto local = rotated ({ std::cos (a) * r, std::sin (a) * r * squash }, angle);
+        tree.attractors[(size_t) k] = bounds.getConstrainedPoint (centre + lean + local);
+        tree.open[(size_t) k] = true;
+    }
+    return slot;
+}
+
+juce::Point<float> Field::colonise (const Joint& parent, juce::Point<float> fallback, float length)
+{
+    // space colonisation (Runions et al.): grow towards the open points this tip is the
+    // nearest to sense; points the branch reaches are used up
+    if (parent.tree < 0 || trees[(size_t) parent.tree].uid != parent.treeUid)
+        return fallback;
+    auto& tree = trees[(size_t) parent.tree];
+    const float influence = tree.reach * 0.9f;
+    juce::Point<float> pull;
+    int seen = 0;
+    for (int k = 0; k < Tree::points; ++k)
+    {
+        if (! tree.open[(size_t) k])
+            continue;
+        const auto d = tree.attractors[(size_t) k] - parent.p;
+        const float dist = d.getDistanceFromOrigin();
+        if (dist > influence || dist < 1.0e-3f)
+            continue;
+        pull += d / dist;
+        ++seen;
+    }
+    if (seen == 0)
+        return fallback;
+    const auto dir = normalised (normalised (pull) + fallback * 0.55f);
+    const auto tip = parent.p + dir * length;
+    const float kill = std::max (8.0f, length * 0.7f);
+    for (int k = 0; k < Tree::points; ++k)
+        if (tree.open[(size_t) k] && tree.attractors[(size_t) k].getDistanceFrom (tip) < kill)
+            tree.open[(size_t) k] = false;
+    return dir;
 }
 
 void Field::spawnRoot (float level, Kind kind, double t)
@@ -362,31 +440,37 @@ void Field::spawnRoot (float level, Kind kind, double t)
     auto& d = processor.display;
     const float theta = d.theta.load (std::memory_order_relaxed);
     const float pi = juce::MathConstants<float>::pi;
+    const auto lp = light();
 
     Joint root;
     auto& tp = root.temper;
-    tp.curl = gauss() * 0.3f;
-    tp.fork = 0.08f + 0.55f * random.nextFloat();
-    tp.reach = random.nextFloat() < 0.12f ? 1.7f + 0.6f * random.nextFloat() : 0.5f + 0.9f * random.nextFloat();
-    tp.bend = 0.05f + 0.55f * random.nextFloat();
-    tp.jolt = 0.04f + 0.22f * random.nextFloat();
+    tp.fork = 0.1f + 0.55f * random.nextFloat();
+    tp.reach = random.nextFloat() < 0.12f ? 1.6f + 0.5f * random.nextFloat() : 0.55f + 0.85f * random.nextFloat();
+    tp.bend = 0.05f + 0.4f * random.nextFloat();
+    tp.wander = 0.15f + 0.5f * random.nextFloat();
     tp.peel = 55.0f + 150.0f * random.nextFloat();
-    tp.stretch = 1.7f + 2.3f * random.nextFloat();
+    tp.stretch = 1.6f + 1.4f * random.nextFloat();
+    tp.stiff = 0.4f + 1.2f * random.nextFloat(); // some trees are wiry, some limp
 
     const float a = -0.5f * pi + 0.55f * theta + (random.nextFloat() - 0.5f) * 1.6f * pi;
-    root.p = root.home = light() + juce::Point<float> (gauss(), gauss()) * 2.0f;
+    root.p = root.home = lp;
     root.dir = { std::cos (a), std::sin (a) };
     root.parent = tethered;
     root.level = std::clamp (level, 0.25f, 1.0f) * (kind == throwKind ? 1.3f : 1.0f);
     root.life = (1.1f + 3.2f * feed) * (kind == throwKind ? 1.6f : 1.0f) * (0.8f + 0.45f * random.nextFloat());
     root.kind = kind;
     root.born = t;
+    root.tree = newTree (lp, (45.0f + 150.0f * space) * tp.reach * (kind == throwKind ? 1.4f : 1.0f), t);
+    root.treeUid = trees[(size_t) root.tree].uid;
     const int index = addJoint (root);
     if (index < 0)
         return;
     const uint32_t uid = joints[(size_t) index].uid;
 
-    // the hit itself bursts: a few short shoots at once, before the echo answers
+    // the hit pushes the medium outwards: everything near the light flinches
+    medium.pulse (lp, (110.0f + 160.0f * root.level) * (kind == throwKind ? 1.6f : 1.0f), 60.0f + 70.0f * space);
+
+    // and bursts: a few short shoots at once, before the echo answers
     const int burst = random.nextInt (4);
     for (int k = 0; k < burst; ++k)
     {
@@ -394,7 +478,8 @@ void Field::spawnRoot (float level, Kind kind, double t)
         Joint twig;
         twig.dir = { std::cos (b), std::sin (b) };
         twig.rest = 3.0f + 9.0f * random.nextFloat() * root.level;
-        twig.p = twig.home = root.p + twig.dir * twig.rest;
+        twig.p = twig.home = lp + twig.dir * twig.rest;
+        twig.v = twig.dir * (40.0f + 80.0f * random.nextFloat());
         twig.parent = index;
         twig.parentUid = uid;
         twig.bend = gauss() * 0.4f;
@@ -422,10 +507,7 @@ void Field::spawnFrom (int parentIndex, bool quarter, double t)
     const float g = quarter ? d.gainQuarter.load (std::memory_order_relaxed) : d.gainDotted.load (std::memory_order_relaxed);
 
     // a crowded field prunes harder, so a busy drum loop stays legible
-    int alive = 0;
-    for (const auto& j : joints)
-        alive += j.alive ? 1 : 0;
-    const float threshold = 0.06f + 0.18f * (float) alive / (float) maxJoints;
+    const float threshold = 0.06f + 0.22f * (float) aliveJoints / (float) jointBudget;
     const float level = parent.level * g * 1.12f * (0.7f + 0.6f * random.nextFloat());
     if (level < threshold || parent.gen >= 14 || random.nextFloat() < 0.07f)
         return;
@@ -433,43 +515,67 @@ void Field::spawnFrom (int parentIndex, bool quarter, double t)
     const auto& tp = parent.temper;
     const float spread = 0.2f + 0.9f * space + 1.1f * d.diffuse.load (std::memory_order_relaxed);
     const float curl = 3.5f * d.rotate.load (std::memory_order_relaxed);
-    const auto lp = light();
-    const float near = std::exp (-parent.p.getDistanceSquaredFrom (lp) / (2.0f * 80.0f * 80.0f));
-    const auto trail = lightSpeed > 0.5f ? normalised (lightStep) * -std::min (1.0f, lightSpeed / 6.0f) * near : juce::Point<float>();
+    const Joint* grand = parentOf (parent);
 
     auto grow = [&] (float extraTurn, float lengthScale, bool twig) {
-        // dotted keeps its side, quarter crosses; the tree's temper and chance do the rest
+        // dotted keeps its side, quarter crosses; the tree's cloud and chance do the rest
         auto dir = parent.dir;
         if (quarter)
             dir.x = -dir.x;
-        float turn = tp.curl + gauss() * spread * 0.45f + curl * (0.5f + random.nextFloat()) + extraTurn;
-        if (random.nextFloat() < tp.jolt)
-            turn += (random.nextBool() ? 1.0f : -1.0f) * (0.7f + 0.9f * random.nextFloat());
-        dir = normalised (rotated (dir, turn) + trail * 0.9f);
+        dir = rotated (dir, gauss() * spread * tp.wander + curl * (0.5f + random.nextFloat()) + extraTurn);
 
         float length = (16.0f + 34.0f * space) * (quarter ? 1.0f : 0.8f) * tp.reach * (0.45f + 1.1f * random.nextFloat())
                        * std::pow (0.93f, (float) parent.gen) * lengthScale;
         if (twig)
             length = 3.0f + 7.0f * random.nextFloat();
+        else
+            dir = colonise (parent, dir, length);
 
-        Joint child;
-        child.p = child.home = parent.p + dir * length;
-        if (! getLocalBounds().toFloat().expanded (20.0f).contains (child.p))
-            return -1; // it has grown out of the field
-        child.dir = dir;
-        child.rest = length;
-        child.parent = parentIndex;
-        child.parentUid = parent.uid;
-        child.bend = gauss() * tp.bend;
-        child.level = twig ? level * 0.6f : level;
-        child.life = parent.life * (twig ? 0.5f : 0.85f + 0.3f * random.nextFloat());
-        child.grow = 0.05f + 0.2f * random.nextFloat();
-        child.gen = (uint8_t) (parent.gen + 1);
-        child.kind = parent.kind;
-        child.twig = twig;
-        child.temper = tp;
-        child.born = t;
-        return addJoint (child);
+        if (! getLocalBounds().toFloat().expanded (20.0f).contains (parent.p + dir * length))
+            return -1; // it would grow out of the field
+
+        // a limb is a chain of short joints, so it can bend, drape and whip as a fibre
+        const int pieces = twig ? 1 : std::clamp ((int) std::ceil (length / 11.0f), 1, 8);
+        const float piece = length / (float) pieces;
+        const float growTime = 0.05f + 0.2f * random.nextFloat();
+        int previous = parentIndex;
+        uint32_t previousUid = parent.uid;
+        auto from = parent.p;
+        auto heading = dir;
+        const Joint* before = grand;
+        for (int k = 0; k < pieces; ++k)
+        {
+            if (k > 0)
+                heading = rotated (heading, gauss() * 0.12f * (0.5f + tp.wander));
+            Joint child;
+            child.p = child.home = from + heading * piece;
+            child.v = parent.v + heading * (20.0f + 40.0f * random.nextFloat()); // it shoots out a little
+            child.dir = heading;
+            child.rest = piece;
+            child.bendRest = before != nullptr ? child.p.getDistanceFrom (before->p) : 0.0f;
+            child.parent = previous;
+            child.parentUid = previousUid;
+            child.tree = parent.tree;
+            child.treeUid = parent.treeUid;
+            child.bend = gauss() * tp.bend;
+            child.level = twig ? level * 0.6f : level;
+            child.life = parent.life * (twig ? 0.5f : 0.85f + 0.3f * random.nextFloat());
+            child.grow = growTime / (float) pieces;
+            child.gen = (uint8_t) (parent.gen + 1);
+            child.kind = parent.kind;
+            child.twig = twig;
+            child.temper = tp;
+            child.born = t + (double) (growTime * (float) k / (float) pieces); // it extends piece by piece
+            child.end = k == pieces - 1;
+            const int index = addJoint (child);
+            if (index < 0)
+                return previous == parentIndex ? -1 : previous;
+            before = previous == parentIndex ? &joints[(size_t) parentIndex] : &joints[(size_t) previous];
+            previous = index;
+            previousUid = joints[(size_t) index].uid;
+            from = child.p;
+        }
+        return previous;
     };
     auto schedule = [&] (int index) {
         if (index < 0 || due.size() + 2 > maxDue)
@@ -502,27 +608,29 @@ void Field::growHeads (double t)
     auto chain = [&] (int from, juce::Point<float> start, float angle, float length, float level, float life, Kind kind) {
         Joint j;
         Joint* p = nullptr;
-        const bool linked = from >= 0 && from < (int) joints.size() && joints[(size_t) from].alive;
-        if (linked)
+        if (from >= 0 && from < (int) joints.size() && joints[(size_t) from].alive)
             p = &joints[(size_t) from];
         j.dir = { std::cos (angle), std::sin (angle) };
         j.rest = length;
-        j.p = j.home = (linked ? p->p : start) + j.dir * length;
-        j.parent = linked ? from : tethered;
-        j.parentUid = linked ? p->uid : 0;
+        j.p = j.home = (p != nullptr ? p->p : start) + j.dir * length;
+        j.parent = p != nullptr ? from : tethered;
+        j.parentUid = p != nullptr ? p->uid : 0;
+        if (p != nullptr)
+            if (const auto* grand = parentOf (*p))
+                j.bendRest = j.p.getDistanceFrom (grand->p);
         j.bend = gauss() * 0.3f;
         j.level = level;
         j.life = life;
         j.grow = 0.04f;
         j.kind = kind;
-        j.gen = linked ? (uint8_t) std::min (200, p->gen + 1) : 0;
+        j.gen = p != nullptr ? (uint8_t) std::min (200, p->gen + 1) : 0;
         j.temper.peel = 90.0f + 80.0f * random.nextFloat();
-        j.temper.stretch = 2.5f + 2.0f * random.nextFloat();
+        j.temper.stretch = 2.2f + 1.5f * random.nextFloat();
         j.born = t;
         return addJoint (j);
     };
 
-    // scream: a dark red tendril climbs from the light, wandering
+    // scream: a tendril that circles as it climbs from the light
     if (lamp[0] > 0.04f)
     {
         if (lastLamp[0] <= 0.04f)
@@ -534,7 +642,6 @@ void Field::growHeads (double t)
         if (t - lastScream > 0.03 + 0.03 * random.nextFloat())
         {
             lastScream = t;
-            // it circles your head as it rises: the tendril curls round while it climbs
             screamAngle += screamTurn * (0.22f + 0.2f * lamp[0]) + gauss() * 0.35f;
             screamTip = chain (screamTip, lp, screamAngle, (5.0f + 8.0f * random.nextFloat()) * (0.6f + lamp[0]),
                                0.35f + 0.65f * lamp[0], 1.6f + 0.8f * random.nextFloat(), screamKind);
@@ -547,11 +654,12 @@ void Field::growHeads (double t)
         const float a = laughSide > 0.0f ? -0.2f - 0.6f * random.nextFloat() : pi + 0.2f + 0.6f * random.nextFloat();
         laughSide = -laughSide;
         int tip = -1;
-        const int segments = 1 + random.nextInt (3);
         float angle = a;
-        for (int k = 0; k < segments; ++k)
+        for (int k = 0, n = 1 + random.nextInt (3); k < n; ++k)
         {
             tip = chain (tip, lp, angle, 10.0f + 22.0f * random.nextFloat(), 0.4f + 0.6f * lamp[1], 0.9f, laughKind);
+            if (tip >= 0)
+                joints[(size_t) tip].v = juce::Point<float> (std::cos (angle), std::sin (angle)) * 160.0f; // a hop
             angle += gauss() * 0.5f;
         }
     }
@@ -582,6 +690,8 @@ void Field::growHeads (double t)
             if (manipulateLast >= 0 && joints[(size_t) manipulateLast].parent == tethered)
                 joints[(size_t) manipulateLast].parent = rooted;
             manipulateAngle = next;
+            // the hand on the reel turns the medium with it
+            medium.stir (to, juce::Point<float> (-std::sin (next), std::cos (next)) * (manipulateTurn * 90.0f * lamp[2]), 50.0f, 0.3f);
         }
     }
 
@@ -590,27 +700,26 @@ void Field::growHeads (double t)
     {
         lastSwarm = t;
         const float lock = std::clamp ((lamp[3] - 0.25f) / 0.75f, 0.0f, 1.0f);
-        const int n = 1 + random.nextInt (3 + (int) (4.0f * lamp[3]));
-        for (int k = 0; k < n; ++k)
+        for (int k = 0, n = 1 + random.nextInt (3 + (int) (4.0f * lamp[3])); k < n; ++k)
         {
             const float a = random.nextFloat() * juce::MathConstants<float>::twoPi;
             const float r = (10.0f + 110.0f * (1.0f - lock)) * (0.4f + 0.6f * std::sqrt (random.nextFloat()));
             const juce::Point<float> offset { std::cos (a) * r, std::sin (a) * r };
             Joint j;
             j.p = j.home = lp + offset;
+            j.v = -offset * (1.0f + 3.0f * lock) + juce::Point<float> (gauss(), gauss()) * (90.0f * (1.0f - lock)); // a buzz, drawn inward as they lock
             j.parent = rooted;
             j.level = (0.3f + 0.7f * lamp[3]) * (0.4f + 0.6f * random.nextFloat());
             j.life = 0.25f + 0.5f * random.nextFloat();
             j.kind = swarmKind;
             j.twig = true;
             j.born = t;
-            const int i = addJoint (j);
-            if (i >= 0) // a buzz, drawn inward as the grains lock
-                joints[(size_t) i].prev = j.p + offset * (0.02f + 0.04f * lock) - juce::Point<float> (gauss(), gauss()) * (1.6f * (1.0f - lock));
+            addJoint (j);
         }
     }
 
-    // ghost: pale strands float up from the light and hang there
+    // ghost: pale strands rise from one side of the light, then above it, then the other
+    // (a whisper at one ear passing behind your head to the other)
     if (lamp[4] > 0.04f && lastLamp[4] <= 0.04f)
     {
         ghostStart = t;
@@ -621,15 +730,12 @@ void Field::growHeads (double t)
         lastGhost = t;
         int tip = -1;
         float angle = -0.5f * pi + gauss() * 0.7f;
-        // a whisper at one ear passing behind your head to the other: the strands rise
-        // from one side of the light, then from above it, then from the other side
-        const float pass = std::clamp ((float) (t - ghostStart) / 2.0f, 0.0f, 1.0f);
-        const float around = pi * pass;
+        const float around = pi * std::clamp ((float) (t - ghostStart) / 2.0f, 0.0f, 1.0f);
         const auto start = lp + juce::Point<float> (ghostSide * 70.0f * std::cos (around), -30.0f * std::sin (around))
                            + juce::Point<float> (gauss(), gauss()) * 10.0f;
         for (int k = 0, n = 2 + random.nextInt (4); k < n; ++k)
         {
-            tip = chain (tip, start, angle, 9.0f + 14.0f * random.nextFloat(), (0.2f + 0.4f * lamp[4]), 3.0f + 2.0f * random.nextFloat(), ghostKind);
+            tip = chain (tip, start, angle, 9.0f + 14.0f * random.nextFloat(), 0.2f + 0.4f * lamp[4], 3.0f + 2.0f * random.nextFloat(), ghostKind);
             if (k == 0 && tip >= 0)
                 joints[(size_t) tip].parent = rooted;
             angle += gauss() * 0.35f;
@@ -640,89 +746,144 @@ void Field::growHeads (double t)
         lastLamp[k] = lamp[k];
 }
 
-void Field::simulate (float frames)
+void Field::simulate (float dt)
 {
+    if (dt <= 0.0f)
+        return;
     const auto lp = light();
-    lightStep = lp - lastLight;
+    const auto step = lp - lastLight;
     lastLight = lp;
-    lightSpeed += (lightStep.getDistanceFromOrigin() - lightSpeed) * 0.3f;
-    const float sigma2 = 2.0f * 60.0f * 60.0f;
-    const float t = (float) now, dtSway = frames / 60.0f;
+    lightVelocity += (step / dt - lightVelocity) * 0.5f;
 
-    for (auto& j : joints)
+    // the medium: the light stirs it as it moves, a throw keeps breathing out of the light
+    const float speed = lightVelocity.getDistanceFromOrigin();
+    if (speed > 5.0f)
+        medium.stir (lp, lightVelocity, 55.0f, 0.55f);
+    if (throwGlow > 0.05f)
+        medium.pulse (lp, 30.0f * throwGlow * dt * 60.0f, 90.0f);
+    const float breath = processor.display.breath.load (std::memory_order_relaxed);
+    medium.step (dt, (float) now, 9.0f + 6.0f * breath);
+
+    // what the medium wants each particle to do (sampled once per frame)
+    for (auto& f : fibres)
+        f.flowVel = medium.velocity (f.p);
+    std::vector<juce::Point<float>>& flows = jointFlows;
+    flows.resize (joints.size());
+    for (size_t i = 0; i < joints.size(); ++i)
+        if (joints[i].alive)
+            flows[i] = medium.velocity (joints[i].p) + (joints[i].kind == ghostKind ? juce::Point<float> (0.0f, -14.0f) : juce::Point<float>());
+
+    const float h = dt / (float) substeps;
+    const float carryTissue = 1.0f - std::exp (-3.0f * h), carryGrowth = 1.0f - std::exp (-5.0f * h);
+    const float rodTissue = alphaTilde (9000.0f, h), bendTissue = alphaTilde (700.0f, h), shapeTissue = alphaTilde (5.0f, h);
+    const float rootAnchor = alphaTilde (60.0f, h);
+
+    for (int sub = 0; sub < substeps; ++sub)
     {
-        if (! j.alive)
-            continue;
-        const float age = (float) (now - j.born);
-        const auto velocity = (j.p - j.prev) * 0.86f;
-        j.prev = j.p;
-        j.p += velocity;
-
-        // the light drags the medium around it
-        const float w = std::exp (-j.p.getDistanceSquaredFrom (lp) / sigma2);
-        j.p += lightStep * (w * 0.55f);
-
-        // everything sways with the tissue
-        const auto sway = (flow (j.home, t) - flow (j.home, t - dtSway)) * 0.6f;
-        j.home += sway;
-        j.p += sway;
-        if (j.kind == ghostKind)
+        // predict
+        for (auto& f : fibres)
         {
-            j.home.y -= 0.22f * frames;
-            j.p.y -= 0.22f * frames;
+            f.v += (f.flowVel - f.v) * carryTissue;
+            f.prev = f.p;
+            if (f.parent >= 0)
+                f.p += f.v * h;
+        }
+        for (size_t i = 0; i < joints.size(); ++i)
+        {
+            auto& j = joints[i];
+            if (! j.alive)
+                continue;
+            j.v += (flows[i] - j.v) * carryGrowth;
+            j.prev = j.p;
+            j.p += j.v * h;
         }
 
-        // young growth hangs free on the light; older growth roots into the tissue
-        float anchor = 0.0f;
-        if (j.parent == rooted)
-            anchor = j.kind == swarmKind ? 0.0f : 0.15f;
-        else if (j.parent >= 0 && age > 0.6f)
-            anchor = std::min (0.05f, (age - 0.6f) * 0.03f);
-        j.p += (j.home - j.p) * std::min (1.0f, anchor * frames);
-    }
+        // the tissue: rods that bend, and a memory of their shape
+        for (const auto& s : strands)
+            for (int i = 1; i < s.count; ++i)
+            {
+                auto& f = fibres[(size_t) (s.first + i)];
+                auto& parent = fibres[(size_t) (s.first + f.parent)];
+                solveDistance (parent.p, parent.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.length, rodTissue);
+                if (parent.parent >= 0)
+                {
+                    auto& grand = fibres[(size_t) (s.first + parent.parent)];
+                    solveDistance (grand.p, grand.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.bendRest, bendTissue);
+                }
+                solveAnchor (f.p, f.rest, shapeTissue);
+            }
 
-    for (int iteration = 0; iteration < 2; ++iteration)
+        // the growth
         for (auto& j : joints)
         {
             if (! j.alive)
                 continue;
+            const auto& tp = j.temper;
+            const float age = (float) (now - j.born);
             if (j.parent == tethered)
             {
-                j.p += (lp - j.p) * 0.55f;
-                if (lp.getDistanceFrom (j.home) > j.temper.peel)
+                j.p = lp; // held by the light
+                if (lp.getDistanceFrom (j.home) > tp.peel)
                 {
-                    j.parent = rooted; // carried far enough: it lets go and roots here
+                    j.parent = rooted; // carried far enough: it lets go and roots where it is
                     j.home = j.p;
                 }
                 continue;
             }
             if (j.parent == rooted)
+            {
+                if (j.kind != swarmKind)
+                    solveAnchor (j.p, j.home, rootAnchor);
                 continue;
-            Joint* p = nullptr;
-            if (! parentOf (j, p))
+            }
+            auto* p = parentOf (j);
+            if (p == nullptr)
             {
                 j.parent = rooted;
                 j.home = j.p;
                 continue;
             }
-            const auto d = j.p - p->p;
-            const float len = d.getDistanceFromOrigin();
-            if (len > j.rest * j.temper.stretch + 14.0f)
+            // young growth hangs free on the light; older growth roots into the tissue
+            if (age > 0.6f)
+                solveAnchor (j.p, j.home, alphaTilde (std::min (25.0f, (age - 0.6f) * 20.0f) * tp.stiff, h));
+            const float wp = p->parent == tethered ? 0.0f : 0.6f; // a parent is a little heavier than its child
+            const float strain = solveDistance (p->p, wp, j.p, 1.0f, j.rest, alphaTilde (5000.0f * tp.stiff, h));
+            if (j.bendRest > 0.0f)
+                if (auto* grand = parentOf (*p))
+                    solveDistance (grand->p, grand->parent == tethered ? 0.0f : 0.4f, j.p, 1.0f, j.bendRest, alphaTilde (500.0f * tp.stiff, h));
+            if (strain > tp.stretch)
             {
-                // stretched too far: it peels off and stays where it is
+                // pulled past its limit: it tears off and stays where it is
                 j.parent = rooted;
                 j.home = j.p;
-                j.prev = j.p + d / len * 2.5f; // a little recoil
-                continue;
-            }
-            if (len > 1.0e-3f)
-            {
-                const auto corr = d * ((len - j.rest) / len);
-                j.p -= corr * 0.5f;
-                if (p->parent != tethered)
-                    p->p += corr * 0.15f;
             }
         }
+
+        // velocities from what the constraints did
+        const float inv = 1.0f / h;
+        for (auto& f : fibres)
+            f.v = f.parent >= 0 ? clampSpeed ((f.p - f.prev) * inv) : juce::Point<float>();
+        for (auto& j : joints)
+            if (j.alive)
+                j.v = clampSpeed ((j.p - j.prev) * inv);
+    }
+}
+
+juce::Colour Field::growthColour (Kind kind, float vis) const
+{
+    const auto redRamp = colour::red.interpolatedWith (colour::redText, std::min (1.0f, vis));
+    const auto greyRamp = colour::inkDim.interpolatedWith (colour::ink, std::min (1.0f, vis));
+    switch (kind)
+    {
+        case throwKind: return colour::ink;
+        case ghostKind: return red == Red::echo ? colour::inkDim : colour::red.withMultipliedBrightness (0.8f);
+        case swarmKind:
+        case screamKind:
+        case laughKind:
+        case manipulateKind: return red == Red::echo ? colour::ink.interpolatedWith (colour::redText, 0.25f) : redRamp;
+        case echoKind: break;
+    }
+    return red == Red::echo ? redRamp : greyRamp;
 }
 
 void Field::paintGrowth (juce::Graphics& g)
@@ -740,49 +901,44 @@ void Field::paintGrowth (juce::Graphics& g)
         if (alpha < 0.01f)
             continue;
 
-        juce::Colour c = colour::ochre;
-        const juce::Image* glow = &glowOchre;
-        switch (j.kind)
-        {
-            case throwKind: c = colour::ink; glow = &glowIvory; break;
-            case screamKind:
-            case laughKind: c = colour::red; glow = &glowRed; break;
-            case manipulateKind: c = colour::red.interpolatedWith (colour::cool, 0.45f); glow = &glowRed; break;
-            case swarmKind: c = colour::red.interpolatedWith (colour::ink, 0.4f); glow = &glowRed; break;
-            case ghostKind: c = colour::cool.interpolatedWith (colour::ink, 0.3f); glow = &glowCool; break;
-            case echoKind: break;
-        }
-        if (j.kind == echoKind)
-            c = colour::ochre.interpolatedWith (colour::ochreHot, std::min (1.0f, j.level));
+        const auto c = growthColour (j.kind, vis);
+        const bool warm = c.getRed() > c.getGreen() + 30;
+        const juce::Image* glow = warm ? &glowRed : &glowWhite;
 
-        Joint* p = nullptr;
         auto tip = j.p;
-        if (j.parent >= 0 && parentOf (j, p))
+        if (const auto* p = parentOf (j))
         {
+            // a smooth limb: a Catmull-Rom piece through grandparent, parent and joint, so
+            // a chain of joints reads as one bending fibre rather than a zig-zag
             const auto a = p->p;
             const auto d = j.p - a;
             const float len = d.getDistanceFromOrigin();
+            const auto* gp = parentOf (*p);
+            const auto before = gp != nullptr ? gp->p : a - d;
+            const auto after = j.p + d + juce::Point<float> (-d.y, d.x) * j.bend * 0.3f;
+            const auto c1 = a + (j.p - before) / 6.0f, c2 = j.p - (after - a) / 6.0f;
+            auto bez = [&] (float t) {
+                const float u = 1.0f - t;
+                return a * (u * u * u) + c1 * (3.0f * u * u * t) + c2 * (3.0f * u * t * t) + j.p * (t * t * t);
+            };
             const float grow = std::min (1.0f, age / j.grow);
-            const auto ctrl = (a + j.p) * 0.5f + juce::Point<float> (-d.y, d.x) * j.bend * 0.5f;
-            tip = quad (a, ctrl, j.p, grow);
+            tip = bez (grow);
             // thinner as it stretches, like a pulled thread
             const float thin = std::clamp (std::sqrt (j.rest / std::max (1.0f, len)), 0.3f, 1.15f);
             float width = (0.4f + 1.9f * vis) * std::pow (0.94f, (float) j.gen) * thin;
-            if (j.twig)
-                width *= 0.6f;
-            if (j.kind == ghostKind)
+            if (j.twig || j.kind == ghostKind)
                 width *= 0.6f;
             g.setColour (c.withAlpha (std::min (1.0f, alpha * 0.95f)));
             // a few straight pieces along the curve: native lines are cheap on every renderer
-            const int pieces = len < 8.0f ? 1 : (len < 30.0f ? 3 : 5);
+            const int pieces = len < 12.0f ? 1 : (len < 30.0f ? 2 : 4);
             auto from = a;
             for (int k = 1; k <= pieces; ++k)
             {
-                const auto to = quad (a, ctrl, j.p, grow * (float) k / (float) pieces);
+                const auto to = bez (grow * (float) k / (float) pieces);
                 g.drawLine ({ from, to }, width);
                 from = to;
             }
-            if (! j.twig && grow >= 1.0f) // a small bead where it forks on
+            if (j.end && ! j.twig && grow >= 1.0f) // a small bead where it forks on
             {
                 g.setColour (c.withAlpha (alpha));
                 g.fillEllipse (juce::Rectangle<float> (1.2f + width, 1.2f + width).withCentre (j.p));
@@ -800,7 +956,7 @@ void Field::paintGrowth (juce::Graphics& g)
             g.setOpacity (alpha * 0.8f);
             g.drawImage (*glow, juce::Rectangle<float> (size, size).withCentre (j.p));
         }
-        else if (age < 0.7f && ! j.twig)
+        else if (age < 0.7f && j.end && ! j.twig)
         {
             const float size = 8.0f + 18.0f * vis;
             g.setOpacity (alpha * 0.8f * (1.0f - age / 0.7f));
@@ -818,10 +974,15 @@ void Field::paintGrowth (juce::Graphics& g)
 
 void Field::tick (double t)
 {
-    const float dt = lastTick < 0.0 ? 1.0f / 60.0f : (float) std::clamp (t - lastTick, 0.0, 0.1);
+    const float dt = lastTick < 0.0 ? 1.0f / 60.0f : (float) std::clamp (t - lastTick, 0.0, 0.05);
     lastTick = t;
     now = t;
     auto& d = processor.display;
+
+    float brightest = 0.0f;
+    for (const auto& lamp : d.lamps)
+        brightest = std::max (brightest, lamp.load (std::memory_order_relaxed));
+    itchLit = brightest;
 
     // new trees: one per onset the audio thread heard
     const int ready = d.fifo.getNumReady();
@@ -858,13 +1019,17 @@ void Field::tick (double t)
         }
     }
 
-    for (auto& j : joints)
-        if (j.alive && t - j.born > (double) j.life)
-            j.alive = false;
+    for (size_t i = 0; i < joints.size(); ++i)
+        if (joints[i].alive && t - joints[i].born > (double) joints[i].life)
+        {
+            joints[i].alive = false;
+            freeJoints.push_back ((int) i);
+            --aliveJoints;
+        }
 
     growHeads (t);
-    simulate (dt * 60.0f);
-    tickTissue (t, dt);
+    simulate (dt);
+    tickSparks (t, dt);
 
     const float target = dragging || hovering ? 1.0f : 0.0f;
     labelAlpha += (target - labelAlpha) * 0.12f;
@@ -911,7 +1076,8 @@ void Field::paint (juce::Graphics& g)
         const auto from = touch;
         const float amount = touchGlow;
         const auto dv = lp - from;
-        const auto mid = (from + lp) * 0.5f + juce::Point<float> (-dv.y, dv.x) * 0.12f + flow (from, (float) now * 3.0f) * 3.0f;
+        const auto bow = medium.velocity ((from + lp) * 0.5f) * 0.25f;
+        const auto mid = (from + lp) * 0.5f + juce::Point<float> (-dv.y, dv.x) * 0.12f + bow;
         juce::Path nerve;
         nerve.startNewSubPath (from);
         nerve.quadraticTo (mid, lp);
@@ -923,21 +1089,19 @@ void Field::paint (juce::Graphics& g)
         {
             const float ph = std::fmod ((float) now * 2.2f + (float) k / 3.0f, 1.0f);
             g.setOpacity (amount * (1.0f - ph * 0.5f));
-            g.drawImage (glowIvory, juce::Rectangle<float> (14.0f, 14.0f).withCentre (quad (from, mid, lp, ph)));
+            g.drawImage (glowWhite, juce::Rectangle<float> (14.0f, 14.0f).withCentre (quad (from, mid, lp, ph)));
         }
-        {
-            g.setOpacity (0.6f * touchGlow);
-            g.drawImage (glowIvory, juce::Rectangle<float> (40.0f, 40.0f).withCentre (touch));
-            g.setColour (colour::ink.withAlpha (0.8f * touchGlow));
-            g.drawEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (touch), 1.0f);
-        }
+        g.setOpacity (0.6f * amount);
+        g.drawImage (glowWhite, juce::Rectangle<float> (40.0f, 40.0f).withCentre (from));
+        g.setColour (colour::ink.withAlpha (0.8f * amount));
+        g.drawEllipse (juce::Rectangle<float> (12.0f, 12.0f).withCentre (from), 1.0f);
     }
 
     // the light: glows with what comes out, breathes with the echo, flares on a throw
     const float breath = d.breath.load (std::memory_order_relaxed);
     const float halo = 64.0f + 44.0f * pointGlow + 10.0f * breath + 70.0f * throwGlow;
-    g.setOpacity (0.22f + 0.45f * pointGlow + 0.33f * throwGlow);
-    g.drawImage (throwGlow > 0.3f ? glowIvory : glowOchre, juce::Rectangle<float> (halo, halo).withCentre (lp));
+    g.setOpacity (0.2f + 0.4f * pointGlow + 0.35f * throwGlow);
+    g.drawImage (glowWhite, juce::Rectangle<float> (halo, halo).withCentre (lp));
 
     // a membrane, not a circle: it never holds the same shape
     juce::Path membrane;

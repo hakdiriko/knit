@@ -58,6 +58,7 @@ target_sources(dendrite PRIVATE
     Source/Editor.cpp
     Source/ui/Theme.cpp
     Source/ui/Field.cpp
+    Source/ui/Medium.cpp
     Source/ui/Controls.cpp
     Source/dsp/Echo.cpp
     Source/dsp/Itch.cpp
@@ -93,6 +94,7 @@ if(DENDRITE_TOOLS)
         Source/Editor.cpp
         Source/ui/Theme.cpp
         Source/ui/Field.cpp
+        Source/ui/Medium.cpp
         Source/ui/Controls.cpp
         Source/dsp/Echo.cpp
         Source/dsp/Itch.cpp

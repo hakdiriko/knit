@@ -8,6 +8,7 @@
 //   DENDRITE_FRAMES=dir                also write frames at 30 fps (frame_00000.png ...)
 //   DENDRITE_FRAMES_FROM=t             ... starting at t seconds
 //   DENDRITE_AUDIO=out.wav             also write what came out of the plug-in
+//   DENDRITE_RED=echo|itch             where the one colour goes
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Processor.h"
 #include "Editor.h"
@@ -68,6 +69,8 @@ int main (int argc, char** argv)
 
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditor());
     auto* editor = dynamic_cast<DendriteEditor*> (base.get());
+    if (env ("DENDRITE_RED") == "itch")
+        editor->getField().setRed (dendrite::ui::Field::Red::itch);
     editor->setSize ((int) (DendriteEditor::designWidth * scale), (int) (DendriteEditor::designHeight * scale));
 
     std::unique_ptr<juce::AudioFormatWriter> audioOut;
@@ -131,7 +134,11 @@ int main (int argc, char** argv)
             juce::Graphics g (img);
             editor->paintEntireComponent (g, true);
         }
-        std::printf ("%.2f ms per frame\n", (juce::Time::getMillisecondCounterHiRes() - start) / 120.0);
+        const double total = (juce::Time::getMillisecondCounterHiRes() - start) / 120.0;
+        const double tickStart = juce::Time::getMillisecondCounterHiRes();
+        for (int k = 0; k < 120; ++k)
+            editor->animateTo (t + 2.001 + k / 60.0);
+        std::printf ("%.2f ms per frame (%.2f ms of it simulation)\n", total, (juce::Time::getMillisecondCounterHiRes() - tickStart) / 120.0);
     }
     return writePng (*editor, juce::File { juce::String (argv[2]) }, 2.0f) ? 0 : 3;
 }
