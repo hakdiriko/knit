@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 (two things you found)
+
+- **The window answers on your second monitor.** On a monitor with a different display scale (125 % next to 100 %, say), Windows handed the window's mouse positions over in the wrong scale, so clicks missed everything. dendrite is built on JUCE 9.0.5 now, which fixes that and keeps the window's size when you drag it between monitors.
+- **itch hears the rests of a loop.** A silent sixteenth counted as "not repeating", so a stab track with a few short notes, and a lot of air between them, often never itched at short lengths (on our test stabs, 131 of 216 patterns never did; now all of them do). Now the rests belong to the loop; only more than two bars of silence counts as the music stopping. Loops that itched before itch at the same moments.
+- Window: every stab sends a shiver through the tissue behind it.
+- Window: the itch's lights are red LEDs in the dark (rendered in Blender).
+
 ## 1.1.0 (your 1.0 review)
 
 What you wrote in the review checklist, and what changed in the sound:
