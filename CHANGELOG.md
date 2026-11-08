@@ -23,6 +23,7 @@ And in the window and the manual:
 - **Strands and branches are rods** that bend, drape, whip and tear (XPBD), and each tree grows toward its own scattered cloud of points (space colonisation). The young ones hang on the light and trail behind when you drag; the old ones root, peel off and stay where you left them.
 - **throw has no button.** Grab the light to move it; touch anywhere else in the dark to throw, and a nerve runs from your finger to the light. `throw` is still there to map to a key in Live.
 - **Each head leaves its own trace:** scream a tendril circling as it climbs, laugh twigs from side to side, manipulate a spiral, swarm grains that close in on the light, ghost pale strands passing from one side to the other.
+- **The itch's lamps and bead are real glass**, rendered in Blender; they glow as each head plays.
 - **Much less text.** The name, "itch" with its length, the head names only while they play, and two words under the light while you touch it.
 - **Monochrome:** black, greys and white, and one colour, dark red, which belongs to the itch: the echo grows in grey and white. The same in the window and the manual.
 - **The manual** is rewritten on true black, lowercase, about half the words, and with the copy for Corpus in the voice of Norman Leto's Photon (your reference).
