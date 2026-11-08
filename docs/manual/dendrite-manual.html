@@ -9,11 +9,11 @@
   @font-face { font-family: "Inter"; font-weight: 400; src: url("../../Resources/fonts/Inter-Regular.ttf"); }
   @font-face { font-family: "Inter"; font-weight: 500; src: url("../../Resources/fonts/Inter-Medium.ttf"); }
 
-  /* true black; one light (warm white), one dark red for the itch */
+  /* true black and greys, one white light, one dark red (the window uses the same values) */
   :root {
     --black: #000; --rule: #1c1c1c; --rule2: #2e2e2e;
-    --light: #f6f3ec; --dim: #8d8a84; --faint: #4f4d49;
-    --glow: #ffe2b0; --itch: #b3241b; --itchText: #cf3a2e;
+    --light: #ededed; --dim: #979797; --faint: #575757;
+    --glow: #ffffff; --itch: #b3241b; --itchText: #cf3a2e;
   }
   @page { size: A4; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -30,13 +30,13 @@
   header { display: flex; align-items: baseline; }
   h1 {
     position: relative; font-weight: 300; font-size: 30pt; letter-spacing: 0.06em; line-height: 1;
-    color: var(--light); text-shadow: 0 0 6mm rgba(255, 226, 176, 0.22);
+    color: var(--light); text-shadow: 0 0 6mm rgba(255, 255, 255, 0.22);
   }
   /* the photon: one point of light above the i */
   h1 .i { position: relative; }
   h1 .i::after {
     content: ""; position: absolute; left: 50%; top: 0.4mm; transform: translateX(-50%); width: 1.3mm; height: 1.3mm; border-radius: 50%;
-    background: var(--glow); box-shadow: 0 0 2mm 0.6mm rgba(255, 226, 176, 0.75), 0 0 7mm 2mm rgba(255, 226, 176, 0.22);
+    background: var(--glow); box-shadow: 0 0 2mm 0.6mm rgba(255, 255, 255, 0.75), 0 0 7mm 2mm rgba(255, 255, 255, 0.22);
   }
   .meta { margin-left: auto; font-size: 6.8pt; letter-spacing: 0.18em; color: var(--faint); }
 
@@ -53,9 +53,9 @@
     background: rgba(0, 0, 0, 0.85); border: 0.25mm solid var(--glow);
     color: var(--glow); font-weight: 400; font-size: 6.6pt;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 0 2.6mm rgba(255, 226, 176, 0.35);
+    box-shadow: 0 0 2.6mm rgba(255, 255, 255, 0.35);
   }
-  .n.itch { border-color: var(--itch); color: var(--itch); box-shadow: 0 0 2.6mm rgba(179, 36, 27, 0.55); }
+  .n.itch { border-color: var(--itch); color: var(--itchText); box-shadow: 0 0 2.6mm rgba(179, 36, 27, 0.55); }
 
   main { margin-top: 5mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6mm 7mm; flex: 1; min-height: 0; align-content: start; }
   h2 {
