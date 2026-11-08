@@ -1,5 +1,5 @@
-// Colours and type for dendrite's window: true black, warm ivory light, manganese-ochre
-// growth, a cool tint for space and a dark red for the itch.
+// Colours and type for dendrite's window: monochrome (true black, greys, white) with one
+// colour, a dark red.
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -8,18 +8,16 @@ namespace dendrite::ui
 {
 namespace colour
 {
+    // monochrome: black, greys and white, and one colour, a dark red
     const juce::Colour black { 0xff000000 };   // the ground: true black
-    const juce::Colour tissue { 0xff8a7058 };  // the living strands behind everything
-    const juce::Colour line { 0xff1e1b18 };
-    const juce::Colour line2 { 0xff3a342e };
-    const juce::Colour ink { 0xffefe8dc };
-    const juce::Colour inkDim { 0xff9c9288 };
-    const juce::Colour inkFaint { 0xff5a534c };
-    const juce::Colour ochre { 0xffd9a35b };
-    const juce::Colour ochreHot { 0xfff4cd8c };
-    const juce::Colour cool { 0xff8cbccb };
-    const juce::Colour red { 0xffb3241b };      // the itch: dark red
-    const juce::Colour redText { 0xffcf3a2e };  // the same red, lifted for small type on black
+    const juce::Colour tissue { 0xff767676 };  // the living strands behind everything
+    const juce::Colour line { 0xff1c1c1c };
+    const juce::Colour line2 { 0xff363636 };
+    const juce::Colour ink { 0xffededed };
+    const juce::Colour inkDim { 0xff979797 };
+    const juce::Colour inkFaint { 0xff575757 };
+    const juce::Colour red { 0xffb3241b };      // the one colour: dark red
+    const juce::Colour redText { 0xffcf3a2e };  // the same red, lifted for small type and loud marks on black
 } // namespace colour
 
 // The embedded Inter faces (SIL Open Font License, see Resources/fonts/OFL.txt), so the
