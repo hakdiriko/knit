@@ -82,7 +82,10 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
     {
         // A frame counts only if it was heard whole and the heads were quiet when it
         // began: after an itch there is always a full frame of relief.
-        const bool counted = lastFrame != INT64_MIN && frameStartedIdle && frameSteps >= (int) (0.6 * frameBeats * 4.0);
+        // It also needs something to have sounded in the last bar, so that the heads have a
+        // hit to grab: a short frame that falls in a loop's rest still counts.
+        const bool counted = lastFrame != INT64_MIN && frameStartedIdle && frameSteps >= (int) (0.6 * frameBeats * 4.0)
+                             && listener.silentSteps() < stepsPerBar;
         if (counted)
         {
             const float mean = frameSum / (float) frameSteps;

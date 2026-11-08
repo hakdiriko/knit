@@ -30,7 +30,10 @@
 
 namespace dendrite
 {
-// Is this sixteenth the same as the same sixteenth one, two or four bars ago?
+// Is this sixteenth the same as the same sixteenth one, two or four bars ago? The gaps
+// between the notes of a loop are part of it: a silent sixteenth keeps the score where
+// the notes left it, and only more than two bars of silence (the music stopped) lets it
+// fall.
 class Listener
 {
 public:
@@ -39,14 +42,15 @@ public:
     void push (float mid) noexcept;          // every sample
     void step (int stepsPerBar) noexcept;    // every sixteenth note
     float repetition() const noexcept { return score; }
+    int silentSteps() const noexcept { return quiet; } // sixteenths since anything sounded
 
 private:
     static constexpr int bands = 6, ringFrames = 512;
     std::array<Biquad, bands> filters {};
     std::array<float, bands> energy {};
-    float envCoef = 0.0f;
+    float envCoef = 0.0f, stepPeak = 0.0f;
     std::array<std::array<float, bands>, ringFrames> ring {};
-    int written = 0;
+    int written = 0, quiet = 1 << 20;
     float score = 0.0f;
 };
 

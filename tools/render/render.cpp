@@ -180,6 +180,9 @@ int main (int argc, char** argv)
     time.bpm = bpm;
     time.playing = playing;
     const auto started = std::chrono::steady_clock::now();
+    int itches = 0;
+    bool itching = false;
+    std::string itchTimes;
     for (size_t pos = 0; pos < total; pos += block)
     {
         const int n = (int) std::min ((size_t) block, total - pos);
@@ -194,6 +197,12 @@ int main (int argc, char** argv)
         engine.setControls (f, s, held, itch, false);
         time.ppq = seconds * bpm / 60.0;
         engine.process (out.left.data() + pos, out.right.data() + pos, n, time);
+        if (engine.view().itching && ! itching)
+        {
+            ++itches;
+            itchTimes += " " + std::to_string ((int) (seconds * 10.0 + 0.5) / 10) + "." + std::to_string ((int) (seconds * 10.0 + 0.5) % 10);
+        }
+        itching = engine.view().itching;
         if (probeFile)
         {
             const auto& heads = engine.itchHeads();
@@ -205,6 +214,7 @@ int main (int argc, char** argv)
         }
     }
     const double elapsed = std::chrono::duration<double> (std::chrono::steady_clock::now() - started).count();
+    std::fprintf (stderr, "itches: %d (at%s s)\n", itches, itchTimes.c_str());
     std::fprintf (stderr, "rendered %.1f s in %.2f s (%.0fx real time)\n", (double) total / in.sampleRate, elapsed,
                   (double) total / in.sampleRate / elapsed);
     return writeWav (argv[2], out) ? 0 : 1;

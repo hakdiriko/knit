@@ -43,7 +43,9 @@ void Listener::reset()
     for (auto& f : filters)
         f.clear();
     energy.fill (0.0f);
+    stepPeak = 0.0f;
     written = 0;
+    quiet = 1 << 20;
     score = 0.0f;
 }
 
@@ -53,19 +55,31 @@ void Listener::push (float mid) noexcept
     {
         const float y = filters[b].process (mid);
         energy[b] = y * y + envCoef * (energy[b] - y * y);
+        stepPeak = std::max (stepPeak, energy[b]);
     }
 }
 
 void Listener::step (int stepsPerBar) noexcept
 {
     auto& current = ring[(size_t) (written % ringFrames)];
-    float loudest = -120.0f;
     for (size_t b = 0; b < bands; ++b)
-    {
         current[b] = std::max (-80.0f, 10.0f * std::log10 (energy[b] + 1e-12f));
-        loudest = std::max (loudest, current[b]);
-    }
     ++written;
+
+    // Whether anything sounded during this sixteenth (not only at its edge, which a short
+    // stab can fall between).
+    const float loudest = 10.0f * std::log10 (stepPeak + 1e-12f);
+    stepPeak = 0.0f;
+
+    if (loudest < -62.0f)
+    {
+        // A rest inside the loop is not news; a silence longer than two bars is the end.
+        quiet = std::min (quiet + 1, 1 << 20);
+        if (quiet > 2 * stepsPerBar)
+            score += 0.3f * (0.0f - score);
+        return;
+    }
+    quiet = 0;
 
     float best = 0.0f;
     for (int bars : { 1, 2, 4 })
@@ -79,9 +93,6 @@ void Listener::step (int stepsPerBar) noexcept
             diff += std::abs (current[b] - then[b]);
         best = std::max (best, std::exp (-(diff / (float) bands) / 3.5f));
     }
-    if (loudest < -62.0f)
-        best = 0.0f; // silence is not repetition
-
     score += 0.3f * (best - score);
 }
 
