@@ -24,7 +24,7 @@ And in the window and the manual:
 - **throw has no button.** Grab the light to move it; touch anywhere else in the dark to throw, and a nerve runs from your finger to the light. `throw` is still there to map to a key in Live.
 - **Each head leaves its own trace:** scream a tendril circling as it climbs, laugh twigs from side to side, manipulate a spiral, swarm grains that close in on the light, ghost pale strands passing from one side to the other.
 - **Much less text.** The name, "itch" with its length, the head names only while they play, and two words under the light while you touch it.
-- **Monochrome:** black, greys and white, and one dark red, in the window and the manual alike.
+- **Monochrome:** black, greys and white, and one dark red, in the window and the manual alike (the manual's glow and examples lost their warm tint too).
 - **The manual** is rewritten on true black, lowercase, about half the words, and with the copy for Corpus in the voice of Norman Leto's Photon (your reference).
 
 Checked: pluginval strictness 10, discovery audit 0 FAIL / 0 WARN, mono residual −130 to −139 dB.
