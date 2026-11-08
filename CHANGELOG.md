@@ -18,12 +18,13 @@ What you wrote in the review checklist, and what changed in the sound:
 
 And in the window and the manual:
 
-- **True black, like the inside of a brain.** No panels or frames: the field is the whole window and its edges sink into black. Behind it, living tissue: strands grow in, sway, pull back after a minute or so and are replaced, and impulses run along them, more of them when the echo is loud, when you throw (warm) and when it itches (dark red).
-- **Dragging pulls something.** Every hit grows a dendrite with its own temper. The young ones hang on the light and trail behind when you drag; the old ones root, stretch thin, peel off and stay where you left them.
+- **True black, like the inside of a brain.** No panels or frames: the field is the whole window and its edges sink into black. Behind it, living tissue: strands grow in, sway, pull back after a minute or so and are replaced, and impulses run along them, more of them when the echo is loud, when you throw and when it itches.
+- **The window floats in a fluid:** dragging the light stirs it, every hit pushes a ring outwards, and the strands and branches are carried by it.
+- **Strands and branches are rods** that bend, drape, whip and tear (XPBD), and each tree grows toward its own scattered cloud of points (space colonisation). The young ones hang on the light and trail behind when you drag; the old ones root, peel off and stay where you left them.
 - **throw has no button.** Grab the light to move it; touch anywhere else in the dark to throw, and a nerve runs from your finger to the light. `throw` is still there to map to a key in Live.
-- **Each head leaves its own trace:** scream a dark red tendril circling as it climbs, laugh twigs from side to side, manipulate a spiral, swarm grains that close in on the light, ghost pale strands passing from one side to the other.
+- **Each head leaves its own trace:** scream a tendril circling as it climbs, laugh twigs from side to side, manipulate a spiral, swarm grains that close in on the light, ghost pale strands passing from one side to the other.
 - **Much less text.** The name, "itch" with its length, the head names only while they play, and two words under the light while you touch it.
-- **The itch is dark red** (it was coral), in the window and the manual alike.
+- **Monochrome:** black, greys and white, and one dark red, in the window and the manual alike.
 - **The manual** is rewritten on true black, lowercase, about half the words, and with the copy for Corpus in the voice of Norman Leto's Photon (your reference).
 
 Checked: pluginval strictness 10, discovery audit 0 FAIL / 0 WARN, mono residual −130 to −139 dB.
