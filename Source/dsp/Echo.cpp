@@ -102,9 +102,9 @@ void Echo::prepare (float newSampleRate)
     sampleRate = newSampleRate;
     setTempo (120.0);
 
-    // A quarter at 30 BPM is 2 s; leave room for lean and wow.
-    loopM.prepare ((int) (sampleRate * 2.2f));
-    loopS.prepare ((int) (sampleRate * 2.2f));
+    // half time's long head (a half note) at 30 BPM is 4 s; leave room for lean and wow.
+    loopM.prepare ((int) (sampleRate * 4.4f));
+    loopS.prepare ((int) (sampleRate * 4.4f));
     tapeM.prepare (sampleRate, 0);
     tapeS.prepare (sampleRate, 0); // the same tape: a Side that is a share of the Mid stays that share
 
@@ -141,6 +141,7 @@ void Echo::prepare (float newSampleRate)
     cLaunch = approach (0.08f, sampleRate);
     cTurn = approach (0.6f, sampleRate);
     cTurnHeal = approach (45.0f, sampleRate);
+    cRunUp = approach (1.6f, sampleRate);
 
     reset();
 }
@@ -176,7 +177,7 @@ void Echo::reset()
     lean = fillAmount = heldSend = throwEnv = throwTail = 0.0f;
     envM = envS = 0.0f;
     easeNow = 1.0f;
-    launch = launchTarget = turn = turnTarget = rotatePhase = 0.0f;
+    launch = launchTarget = turn = turnTarget = rotatePhase = runaway = 0.0f;
     breathNow = levelNow = thetaNow = 0.0f;
     onsetPending = 0.0f;
     onsetArmed = 1.0f;
@@ -227,6 +228,7 @@ Echo::View Echo::view() const noexcept
     v.throwing = std::max (heldSend, throwEnv);
     v.ease = easeNow;
     v.breath = breathNow;
+    v.runaway = runaway;
     // relative to the track's own recent peaks, so a quiet track and a loud one look alike
     v.body = peakLong > 1.0e-9f ? clamp01 (1.41f * std::sqrt (rmsShort) / peakLong) : 0.0f;
     v.echoBody = peakLong > 1.0e-9f ? clamp01 (std::max (outEnvM, outEnvS) / (0.85f * peakLong)) : 0.0f;
@@ -244,11 +246,14 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     // the heads glide like tape when the tempo changes
     if (dottedSm <= 0.0f)
     {
-        dottedSm = 3.0f * sixteenth;
-        quarterSm = 4.0f * sixteenth;
+        dottedSm = (timing == 1 ? 8.0f / 3.0f : timing == 2 ? 6.0f : 3.0f) * sixteenth;
+        quarterSm = (timing == 2 ? 8.0f : 4.0f) * sixteenth;
     }
-    dottedSm += cHead * (3.0f * sixteenth - dottedSm);
-    quarterSm += cHead * (4.0f * sixteenth - quarterSm);
+    // the two heads' places in sixteenths: dotted 1/8 + 1/4, 1/4 triplet + 1/4, or half
+    // time (dotted 1/4 + 1/2). Changing it glides the heads like tape.
+    static constexpr float shortHead[3] = { 3.0f, 8.0f / 3.0f, 6.0f }, longHead[3] = { 4.0f, 4.0f, 8.0f };
+    dottedSm += cHead * (shortHead[timing] * sixteenth - dottedSm);
+    quarterSm += cHead * (longHead[timing] * sixteenth - quarterSm);
 
     // listening: max(|L|, |R|) = |M| + |S|
     const float m = std::abs (xm) + std::abs (xs);
@@ -260,7 +265,9 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
         ++heard;
     // a running mean until four seconds have been heard, then the four-second follower
     rmsLong += std::max (cLong, 1.0f / (float) std::max<int64_t> (1, heard)) * (m * m - rmsLong);
-    peakLong = std::max (eFast, peakLong * (1.0f - cPeak));
+    // while a throw runs away, the loop's measure of "what was played" holds still, so the
+    // howl can climb on its own in a silence
+    peakLong = std::max (eFast, runaway > 0.05f ? peakLong : peakLong * (1.0f - cPeak));
     silentFor = eFast < peakLong * 0.02f ? silentFor + 1 : 0; // 34 dB under recent peaks
 
     // a new tree for the window: an onset that stands out from the recent level
@@ -294,6 +301,10 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
         onsetThrown = true;
     }
     wasHeld = held;
+    // the runaway: a throw held at endless may grow past what was played, into a howl the
+    // tape itself holds; it falls back like any throw when you let go
+    const float runTarget = held ? clamp01 ((feed - 0.87f) / 0.1f) : 0.0f;
+    runaway += (runTarget > runaway ? cRunUp : cThrowDown) * (runTarget - runaway);
     launch += cLaunch * (launchTarget - launch);
     launchTarget -= cTurnHeal * 4.0f * launchTarget; // heals over ~10 s
     turn += cTurn * (turnTarget - turn);
@@ -321,8 +332,8 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
         gd *= s;
         gq *= s;
     }
-    gainDottedNow = std::min (0.9f, std::max (gd + 0.12f * throwEnv, 0.72f * throwTail));
-    gainQuarterNow = std::min (0.66f, std::max (gq + 0.1f * throwEnv, 0.5f * throwTail));
+    gainDottedNow = std::min (0.9f + 0.12f * runaway, std::max (gd + (0.12f + 0.2f * runaway) * throwEnv, 0.72f * throwTail));
+    gainQuarterNow = std::min (0.66f + 0.1f * runaway, std::max (gq + (0.1f + 0.15f * runaway) * throwEnv, 0.5f * throwTail));
 
     // the heads
     const float onBeat = tapeM.latency() - 2.0f;
@@ -339,7 +350,7 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     // The loop may never grow louder than what was played into it: past a share of the
     // recent input peaks the feedback eases off (Mid and Side each on their own, so the
     // Side never moves the Mid).
-    const float ceiling = (pCeiling + 0.25f * throwEnv) * peakLong;
+    const float ceiling = (pCeiling + 0.25f * throwEnv) * peakLong * (1.0f + 7.0f * runaway * runaway);
     envM += (std::abs (fbM) > envM ? aLoop : rLoop) * (std::abs (fbM) - envM);
     envS += (std::abs (fbS) > envS ? aLoop : rLoop) * (std::abs (fbS) - envS);
     easeNow = envM > ceiling ? ceiling / envM : 1.0f;
@@ -367,7 +378,8 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     }
 
     // write the Mid
-    const float writeM = tapeM.process (send * xm + fbM + im, pDrive, tapeDiffusion);
+    const float drive = pDrive * (1.0f + 1.6f * runaway);
+    const float writeM = tapeM.process (send * xm + fbM + im, drive, tapeDiffusion);
 
     // every pass writes a little of the Mid into the Side again: the repeats step outward
     thetaNow = 1.6f * thetaWander.next() + launch + turn;
@@ -376,7 +388,7 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     const float breathSpace = 1.0f + 0.15f * breathNow;
     const float pan = (pPan + 0.12f * throwEnv) * breathSpace;
     const float inject = pan * std::sin (thetaNow) * writeM + pSpread * breathSpace * std::cos (thetaNow) * imM;
-    const float writeS = tapeS.process (send * pInWidth * xs + fbS + is, pDrive, tapeDiffusion) + inject;
+    const float writeS = tapeS.process (send * pInWidth * xs + fbS + is, drive, tapeDiffusion) + inject;
 
     loopM.push (writeM);
     loopS.push (writeS);
@@ -401,7 +413,7 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
 
     // The echo may be as loud as what was played, not louder: a ceiling under the safety
     // limiter, for the Mid and the Side each on its own (so space never moves the Mid).
-    const float wetCeiling = 0.85f * peakLong;
+    const float wetCeiling = 0.85f * peakLong * (1.0f + 7.0f * runaway * runaway);
     outEnvM += (std::abs (wm) > outEnvM ? aOut : rOut) * (std::abs (wm) - outEnvM);
     outEnvS += (std::abs (ws) > outEnvS ? aOut : rOut) * (std::abs (ws) - outEnvS);
     if (outEnvM > wetCeiling)

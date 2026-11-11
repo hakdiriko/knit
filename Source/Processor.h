@@ -57,6 +57,7 @@ public:
         // one: the strongest hit since the window last took it (read it with exchange (0.0f)),
         // the input's held level, the echo's level
         std::atomic<float> hit { 0.0f }, body { 0.0f }, echoBody { 0.0f };
+        std::atomic<float> runaway { 0.0f }; // 0..1 while a throw held at endless runs away
         std::atomic<bool> hostPlaying { false }, itching { false };
 
         // onsets: each one starts a new tree in the window
@@ -74,6 +75,8 @@ private:
     std::atomic<float>* throwParam = nullptr;
     std::atomic<float>* itchParam = nullptr;
     std::atomic<float>* bypassParam = nullptr;
+    std::atomic<float>* timeParam = nullptr;
+    std::atomic<float>* dryParam = nullptr;
 
     dendrite::Engine engine;
     dendrite::HostTime hostTime;

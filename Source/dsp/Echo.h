@@ -49,6 +49,9 @@ public:
     // the tape (the itch heads). Returns the echo as Mid/Side in wm/ws.
     void process (float xm, float xs, float im, float is, float& wm, float& ws) noexcept;
 
+    // 0: dotted 1/8 + 1/4, 1: 1/4 triplet + 1/4, 2: half time (dotted 1/4 + 1/2)
+    void setTiming (int t) noexcept { timing = std::clamp (t, 0, 2); }
+
     void setTempo (double bpm) noexcept { sixteenth = (float) (sampleRate * 15.0 / std::clamp (bpm, 30.0, 300.0)); }
 
     // For the window.
@@ -61,6 +64,7 @@ public:
         // 0..1 against the track's recent peaks: how loud the input is held (body) and the
         // echo's own level (echoBody); the strongest hit since the last takeHit() is separate
         float body = 0.0f, echoBody = 0.0f;
+        float runaway = 0.0f; // 0..1: how far a throw held at endless has run away
     };
     View view() const noexcept;
 
@@ -109,6 +113,8 @@ private:
     void updatePaths() noexcept;
 
     float sampleRate = 48000.0f, sixteenth = 6000.0f;
+    int timing = 0;
+    float runaway = 0.0f, cRunUp = 0.0f;
     Ring loopM, loopS;
     TapePass tapeM, tapeS;
     std::array<DriftAllpass, 5> sideDiffusers;

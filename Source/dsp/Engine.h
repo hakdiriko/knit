@@ -30,6 +30,14 @@ public:
     void reset();
     void setControls (float feed, float space, bool throwHeld, int itchChoice, bool bypassed) noexcept;
 
+    // time: 0 dotted (dotted 1/8 + 1/4), 1 triplet (1/4 triplet + 1/4), 2 half (dotted 1/4 + 1/2).
+    // dry off: only the echo and the heads come out, for a return track.
+    void setStyle (int time, bool dry) noexcept
+    {
+        echo.setTiming (time);
+        dryTarget = dry ? 1.0f : 0.0f;
+    }
+
     // In place, stereo. left/right may be the same signal for a mono input.
     void process (float* left, float* right, int numSamples, const HostTime& time) noexcept;
 
@@ -42,7 +50,7 @@ public:
         float correlation = 1.0f, inLevel = 0.0f, outLevel = 0.0f;
         // for the window, 0..1 against the track's own recent peaks: the strongest hit this
         // block, how loud the input is held, how loud the echo is
-        float hit = 0.0f, body = 0.0f, echoBody = 0.0f;
+        float hit = 0.0f, body = 0.0f, echoBody = 0.0f, runaway = 0.0f;
         double bpm = 120.0;
         bool hostPlaying = false;
     };
@@ -62,7 +70,7 @@ private:
     Heads heads;
 
     int itchChoice = defaultFrame;
-    float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f;
+    float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f, dryTarget = 1.0f, dryNow = 1.0f;
 
     // attack detector
     Biquad attackFilter;

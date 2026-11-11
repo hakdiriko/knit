@@ -212,16 +212,21 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
     for pname, p in params.items():
         if any(w in pname.lower() for w in SKIP_PARAM_WORDS):
             continue
+        # A choice or a switch (a few steps) is judged at its steps only: it has no travel
+        # between them to be dead, and a jump between two choices is the choice.
+        steps = getattr(p, "num_steps", 0)
+        stepped = 1 < steps <= 8
+        px = [i / (steps - 1) for i in range(steps)] if stepped else xs
         for sname, audio in signals.items():
             restore()
             base = analyse(render(plugin, audio))
             res = []
-            for x in xs:
+            for x in px:
                 set_raw(p, x)
                 res.append(analyse(render(plugin, audio)))
             restore()
 
-            for x, r in zip(xs, res):
+            for x, r in zip(px, res):
                 if not r["finite"] or r["peak"] > 1.0:
                     flags.append(("FAIL", pname, sname, f"BLOWUP at {x:.2f} (peak {r['peak']:.2f})"))
                 elif sname != "impulse" and r["rms_db"] < SILENT_DBFS:
@@ -229,7 +234,7 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
             if not all(r["finite"] for r in res):
                 continue
 
-            jumps = [abs(res[i + 1]["rms_db"] - res[i]["rms_db"]) for i in range(len(res) - 1)]
+            jumps = [] if stepped else [abs(res[i + 1]["rms_db"] - res[i]["rms_db"]) for i in range(len(res) - 1)]
             for i, j in enumerate(jumps):
                 if j > JUMP_DB:
                     flags.append(("WARN", pname, sname,
@@ -239,7 +244,7 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
             # everywhere, but its total change across a stretch is still large.
             # A switch has no travel, only its two states, so it is judged by reach alone.
             i = 0
-            while getattr(p, "num_steps", 0) > 2 and i < len(res) - 1:
+            while not stepped and getattr(p, "num_steps", 0) > 2 and i < len(res) - 1:
                 j = i
                 while j + 1 < len(res) and distance(res[i], res[j + 1]) < DEAD_DIST_DB:
                     j += 1
@@ -248,7 +253,7 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
                                   f"DEAD_ZONE {xs[i]:.2f}–{xs[j]:.2f} ({xs[j] - xs[i]:.0%} of travel)"))
                 i = max(j, i + 1)
             reach = max(distance(base, r) for r in res)
-            if reach < NO_EFFECT_DB:
+            if reach < NO_EFFECT_DB and not (stepped and sname == "impulse"):
                 flags.append(("WARN", pname, sname, f"NO_EFFECT: max {reach:.2f} dB from default"))
 
     # 3. Random full states
@@ -261,7 +266,10 @@ def audit(plugin, signals, steps=21, n_random=100, seed=7):
                 set_raw(p, rng.random())
         for sname, audio in test.items():
             r = analyse(render(plugin, audio))
-            if not r["finite"] or r["peak"] > 1.0 or r["rms_db"] < SILENT_DBFS:
+            # dry off with feed off is silence by design (a return track with nothing sent back)
+            echo_only_off = any("dry" in k.lower() and get_raw(q) < 0.5 for k, q in params.items()) \
+                and any(k.lower() == "feed" and get_raw(q) < 0.1 for k, q in params.items())
+            if not r["finite"] or r["peak"] > 1.0 or (r["rms_db"] < SILENT_DBFS and not echo_only_off):
                 bad += 1
             elif distance(analyse(audio), r) < INSERT_DULL_DB:
                 dull += 1
