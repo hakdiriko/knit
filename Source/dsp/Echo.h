@@ -58,10 +58,21 @@ public:
         float gainDotted = 0.62f, gainQuarter = 0.42f;
         float pan = 0.0f, spread = 0.0f, diffuse = 0.0f, rotate = 0.0f, theta = 0.0f;
         float returnLevel = 0.0f, fill = 0.0f, throwing = 0.0f, ease = 1.0f, breath = 0.0f;
+        // 0..1 against the track's recent peaks: how loud the input is held (body) and the
+        // echo's own level (echoBody); the strongest hit since the last takeHit() is separate
+        float body = 0.0f, echoBody = 0.0f;
     };
     View view() const noexcept;
 
     // An onset worth drawing: set when the input (or a throw) starts a new tree.
+    // The strongest input against the track's recent peaks (0..1) since the last call.
+    float takeHit() noexcept
+    {
+        const float h = clamp01 (hitPeak);
+        hitPeak = 0.0f;
+        return h;
+    }
+
     bool takeOnset (float& level, bool& thrown) noexcept
     {
         if (onsetPending <= 0.0f)
@@ -117,7 +128,7 @@ private:
 
     // state
     float dottedSm = 0.0f, quarterSm = 0.0f;
-    float eFast = 0.0f, eSlow = 0.0f, eDuck = 0.0f, rmsShort = 0.0f, rmsLong = 1.0e-4f, peakLong = 1.0e-3f, outEnvM = 0.0f, outEnvS = 0.0f;
+    float eFast = 0.0f, eSlow = 0.0f, eDuck = 0.0f, rmsShort = 0.0f, rmsLong = 0.0f, peakLong = 0.0f, hitPeak = 0.0f, outEnvM = 0.0f, outEnvS = 0.0f;
     float lean = 0.0f, fillAmount = 0.0f, heldSend = 0.0f, throwEnv = 0.0f, throwTail = 0.0f;
     float envM = 0.0f, envS = 0.0f, easeNow = 1.0f;
     float launch = 0.0f, launchTarget = 0.0f, turn = 0.0f, turnTarget = 0.0f, rotatePhase = 0.0f;
@@ -125,7 +136,7 @@ private:
     float gainDottedNow = 0.62f, gainQuarterNow = 0.42f;
     float onsetPending = 0.0f, onsetArmed = 1.0f;
     bool onsetThrown = false;
-    int64_t silentFor = 0, count = 0;
+    int64_t silentFor = 0, count = 0, heard = 0;
 
     // coefficients
     float cFast = 0, rFast = 0, cSlow = 0, aDuck = 0, rDuck = 0, cShort = 0, cLong = 0, cPeak = 0, cLean = 0,

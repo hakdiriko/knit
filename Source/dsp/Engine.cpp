@@ -16,6 +16,17 @@ namespace
     float coefFor (float seconds, float sr) noexcept { return std::exp (-1.0f / (seconds * sr)); }
 
     constexpr float ceilingGain = 0.966f; // -0.3 dBFS
+
+    // How much of the echo fits next to the dry under the ceiling (0..1). A dry that is
+    // already over the ceiling is the host's to handle: the echo then steps aside.
+    float wetRoom (float dry, float wet) noexcept
+    {
+        const float sum = std::abs (dry + wet);
+        if (sum <= ceilingGain)
+            return 1.0f;
+        const float allowed = std::max (0.0f, ceilingGain - std::abs (dry));
+        return std::clamp (allowed / (std::abs (wet) + 1.0e-12f), 0.0f, 1.0f);
+    }
 } // namespace
 
 void Engine::prepare (float sampleRate)
@@ -53,7 +64,7 @@ void Engine::reset()
     frameStartedIdle = true;
     quietFor = 1 << 30;
     wetNow = wetTarget;
-    limiterEnv = 0.0f;
+    limiterEnv = 1.0f;
     corrLR = corrLL = corrRR = inPower = outPower = 0.0f;
     state = {};
 }
@@ -61,7 +72,13 @@ void Engine::reset()
 void Engine::setControls (float feed, float space, bool throwHeld, int choice, bool bypassed) noexcept
 {
     echo.setControls (feed, space, throwHeld && ! bypassed);
-    itchChoice = std::clamp (choice, 0, frameChoices - 1);
+    const int next = std::clamp (choice, 0, frameChoices - 1);
+    if (next == 0 && itchChoice != 0)
+    {
+        heads.stop(); // off means off, even in the middle of an itch
+        boredFrames = 0;
+    }
+    itchChoice = next;
     wetTarget = bypassed ? 0.0f : 1.0f;
 }
 
@@ -110,9 +127,10 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
         frameSum = 0.0f;
         frameSteps = 0;
         // Relief: a frame counts only if it began with the heads quiet, and (for frames
-        // shorter than a bar) at least a bar after they fell quiet.
+        // shorter than two bars) at least two bars after they fell quiet, so a short
+        // length stays an event and doesn't turn into wallpaper.
         frameStartedIdle = ! heads.busy()
-                           && (double) quietFor >= std::max (0.0, barBeats - frameBeats) * samplesPerBeat;
+                           && (double) quietFor >= std::max (0.0, 2.0 * barBeats - frameBeats) * samplesPerBeat;
     }
     beat += beatsPerSample;
     quietFor = heads.busy() ? 0 : quietFor + 1;
@@ -158,18 +176,17 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         // The dry passes untouched; bypass fades the echo and the heads out.
         wetNow += std::clamp (wetTarget - wetNow, -wetStep, wetStep);
         const float em = wetNow * (wm + hm), es = wetNow * (ws + hs);
-        float outL = l + em + es;
-        float outR = r + em - es;
+        float wetL = em + es, wetR = em - es;
 
-        // Safety limiter: instant attack, 120 ms release, -0.3 dBFS. A seatbelt, not an effect.
-        const float peak = std::max (std::abs (outL), std::abs (outR));
-        limiterEnv = peak > limiterEnv ? peak : peak + limiterRelease * (limiterEnv - peak);
-        if (limiterEnv > ceilingGain)
-        {
-            const float g = ceilingGain / limiterEnv;
-            outL *= g;
-            outR *= g;
-        }
+        // Safety limiter on the echo only: the dry passes untouched, always. When the dry and
+        // the echo together would pass -0.3 dBFS, the echo dips under the hit (instant, then
+        // back over 120 ms), the way an engineer rides the return down. A seatbelt, not an effect.
+        const float room = std::min (wetRoom (l, wetL), wetRoom (r, wetR));
+        limiterEnv = room < limiterEnv ? room : room + limiterRelease * (limiterEnv - room);
+        wetL *= limiterEnv;
+        wetR *= limiterEnv;
+        const float outL = l + wetL;
+        const float outR = r + wetR;
         left[i] = outL;
         right[i] = outR;
 
@@ -185,6 +202,9 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
     state.correlation = denom > 1e-9f ? corrLR / denom : 1.0f;
     state.inLevel = std::sqrt (std::max (0.0f, inPower));
     state.outLevel = std::sqrt (std::max (0.0f, outPower));
+    state.hit = echo.takeHit();
+    state.body = state.echo.body;
+    state.echoBody = state.echo.echoBody;
     state.repetition = listener.repetition();
     state.frameProgress = (float) (std::fmod (std::max (0.0, beat), frameBeats) / frameBeats);
     state.boredom = std::min (1.0f, (float) boredFrames / 3.0f);

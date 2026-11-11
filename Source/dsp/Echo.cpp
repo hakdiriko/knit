@@ -16,7 +16,8 @@ namespace
     // lingers, it doesn't regenerate.
     const Path<5> loopCapPath { { { { 0.0f, 0.7f }, { 0.25f, 0.88f }, { 0.5f, 1.2f }, { 0.75f, 1.4f }, { 1.0f, 1.6f } } } };
     const Path<6> returnPath { { { { 0.0f, 0.0f }, { 0.06f, 0.3f }, { 0.25f, 0.95f }, { 0.5f, 1.6f }, { 0.75f, 1.9f }, { 1.0f, 2.0f } } } };
-    const Path<4> duckPath { { { { 0.0f, 0.65f }, { 0.5f, 0.6f }, { 0.75f, 0.45f }, { 1.0f, 0.3f } } } };
+    // whisper ducks less than it used to (0.65): on a busy part it was easy to miss
+    const Path<4> duckPath { { { { 0.0f, 0.4f }, { 0.5f, 0.55f }, { 0.75f, 0.45f }, { 1.0f, 0.3f } } } };
     const Path<4> ceilingPath { { { { 0.0f, 0.45f }, { 0.5f, 0.5f }, { 0.8f, 0.62f }, { 1.0f, 0.8f } } } };
     const Path<4> drivePath { { { { 0.0f, 1.1f }, { 0.5f, 1.16f }, { 0.85f, 1.4f }, { 1.0f, 1.9f } } } };
 
@@ -166,8 +167,11 @@ void Echo::reset()
     wasHeld = held;
     dottedSm = quarterSm = 0.0f;
     eFast = eSlow = eDuck = rmsShort = 0.0f;
-    rmsLong = 1.0e-4f;
-    peakLong = 1.0e-3f;
+    // The followers start empty and learn the track from its first sound, so a quiet
+    // track and a loud one sound the same from the first second.
+    rmsLong = peakLong = 0.0f;
+    heard = 0;
+    hitPeak = 0.0f;
     outEnvM = outEnvS = 0.0f;
     lean = fillAmount = heldSend = throwEnv = throwTail = 0.0f;
     envM = envS = 0.0f;
@@ -223,6 +227,9 @@ Echo::View Echo::view() const noexcept
     v.throwing = std::max (heldSend, throwEnv);
     v.ease = easeNow;
     v.breath = breathNow;
+    // relative to the track's own recent peaks, so a quiet track and a loud one look alike
+    v.body = peakLong > 1.0e-9f ? clamp01 (1.41f * std::sqrt (rmsShort) / peakLong) : 0.0f;
+    v.echoBody = peakLong > 1.0e-9f ? clamp01 (std::max (outEnvM, outEnvS) / (0.85f * peakLong)) : 0.0f;
     return v;
 }
 
@@ -249,12 +256,16 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     eSlow += cSlow * (eFast - eSlow);
     eDuck += (m > eDuck ? aDuck : rDuck) * (m - eDuck);
     rmsShort += cShort * (m * m - rmsShort);
-    rmsLong += cLong * (m * m - rmsLong);
+    if (m > 1.0e-6f || heard > 0)
+        ++heard;
+    // a running mean until four seconds have been heard, then the four-second follower
+    rmsLong += std::max (cLong, 1.0f / (float) std::max<int64_t> (1, heard)) * (m * m - rmsLong);
     peakLong = std::max (eFast, peakLong * (1.0f - cPeak));
     silentFor = eFast < peakLong * 0.02f ? silentFor + 1 : 0; // 34 dB under recent peaks
 
     // a new tree for the window: an onset that stands out from the recent level
-    if (onsetArmed > 0.0f && eFast > 1.9f * eSlow + 1.0e-4f && eFast > 0.12f * peakLong)
+    hitPeak = std::max (hitPeak, peakLong > 1.0e-9f ? eFast / peakLong : 0.0f);
+    if (onsetArmed > 0.0f && eFast > 1.9f * eSlow + 0.01f * peakLong + 1.0e-7f && eFast > 0.12f * peakLong)
     {
         onsetPending = std::max (onsetPending, clamp01 (eFast / peakLong));
         onsetArmed = 0.0f;
@@ -290,7 +301,7 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     const float send = std::max (pSend, 1.15f * heldSend);
 
     // breathing: lean late when the part is busy, and swell on its own
-    const float busy = std::clamp (std::sqrt (rmsShort / (rmsLong + 1.0e-9f)) - 0.7f, 0.0f, 1.0f);
+    const float busy = rmsLong > 1.0e-14f ? std::clamp (std::sqrt (rmsShort / rmsLong) - 0.7f, 0.0f, 1.0f) : 0.0f;
     lean += cLean * (busy - lean);
     const float leanSamples = lean * 0.008f * sampleRate;
     const float wobbleA = (wowA.next() * wowSeconds + flutter.next() * flutterSeconds) * sampleRate;
