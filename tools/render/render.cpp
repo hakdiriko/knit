@@ -7,6 +7,7 @@
 //                [--throw start:end (seconds, repeatable)] [--stopped] [--tail seconds]
 //                [--sweep feed|space from to]  (moves a control linearly over the file)
 //                [--itch-off seconds]  (turns the itch off at that moment)
+//                [--time 0|1|2]  (dotted, triplet, half)  [--dry 0|1]
 //                [--probe heads.raw]  (also writes what each itch head played: float32,
 //                                      interleaved left/right per head, for levelling them)
 #include "dsp/Engine.h"
@@ -129,6 +130,8 @@ int main (int argc, char** argv)
     float feed = 0.5f, space = 0.4f, tail = 0.0f, sweepFrom = 0.0f, sweepTo = 0.0f;
     int itch = dendrite::Engine::defaultFrame;
     float itchOff = 1.0e9f;
+    int timing = 0;
+    bool dry = true;
     double bpm = 120.0;
     bool playing = true;
     std::string sweep, probe;
@@ -141,6 +144,8 @@ int main (int argc, char** argv)
         else if (k == "--space") space = std::stof (next());
         else if (k == "--itch") itch = std::stoi (next());
         else if (k == "--itch-off") itchOff = std::stof (next());
+        else if (k == "--time") timing = std::stoi (next());
+        else if (k == "--dry") dry = std::stoi (next()) != 0;
         else if (k == "--bpm") bpm = std::stod (next());
         else if (k == "--tail") tail = std::stof (next());
         else if (k == "--stopped") playing = false;
@@ -198,6 +203,7 @@ int main (int argc, char** argv)
         if (sweep == "feed") f = sweepFrom + (sweepTo - sweepFrom) * progress;
         if (sweep == "space") s = sweepFrom + (sweepTo - sweepFrom) * progress;
         engine.setControls (f, s, held, seconds >= itchOff ? 0 : itch, false);
+        engine.setStyle (timing, dry);
         time.ppq = seconds * bpm / 60.0;
         engine.process (out.left.data() + pos, out.right.data() + pos, n, time);
         if (engine.view().itching && ! itching)

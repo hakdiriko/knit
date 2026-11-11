@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.0 (your critique, answered)
+
+**Level: the same dendrite at any track level.** Nothing is normalised: a quiet track gets a quiet echo, a loud one a loud echo.
+
+- **Your dry is never squashed.** The safety limiter used to pull the whole mix down when a hot track (peaks near 0 dBFS) and its echo didn't fit together, up to 5 dB on a stab. Now only the echo steps aside under each hit, the way an engineer rides the return down, and comes back in the gap.
+- **The first seconds sound the same at any level.** The echo used to start from values that suited a medium-loud track, so a quiet or loud one sounded different for 5 to 10 seconds after play.
+- **The itch hears quiet tracks.** A loop at −60 dBFS never itched; now it itches exactly when a loud one does. From −66 to 0 dBFS the echo matches within 0.1 dB and the itches land at the same moments.
+
+**The itch and whisper**
+
+- **Off means off.** Turning the itch off fades a running itch out within 100 ms (it used to play to its end).
+- **Short lengths stay events.** With itch lengths under two bars there are now at least two bars of quiet after each itch (it was one), so ¼ bar no longer itches nearly every other bar.
+- **More to grab.** Each itch takes one of the strongest hits of the last bar (any within 3 dB of the loudest), not always the loudest, so a drum loop doesn't hand the heads the same kick every time.
+- **whisper is easier to hear:** it ducks less under what's playing, about 3 dB more present on a busy part.
+
+**New**
+
+- **The runaway.** Hold throw at endless and the loop may now grow past what you played, climbing into a howl that the tape's saturation holds. Let go and it falls back like any throw.
+- **time:** dotted (dotted ⅛ + ¼, as before), triplet (¼ triplet + ¼) or half (dotted ¼ + ½, half-time dub). Switching glides the heads like tape.
+- **dry:** on by default. Off for a return track in Live: only the echo and the itch come out, and a send feeds it.
+
 ## 1.1.1 (two things you found)
 
 - **The window answers on your second monitor.** On a monitor with a different display scale (125 % next to 100 %, say), Windows handed the window's mouse positions over in the wrong scale, so clicks missed everything. dendrite is built on JUCE 9.0.5 now, which fixes that and keeps the window's size when you drag it between monitors.

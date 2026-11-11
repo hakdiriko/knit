@@ -29,6 +29,10 @@ namespace
         layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "frames", paramVersion }, "itch",
                                                             DendriteProcessor::itchNames, DendriteProcessor::defaultItch));
         layout.add (std::make_unique<AudioParameterBool> (ParameterID { "bypass", paramVersion }, "bypass", false));
+        // 1.2: the echo's rhythm, and dry off for return tracks
+        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "time", 9 }, "time",
+                                                            StringArray { "dotted", "triplet", "half" }, 0));
+        layout.add (std::make_unique<AudioParameterBool> (ParameterID { "dry", 9 }, "dry", true));
         return layout;
     }
 } // namespace
@@ -60,6 +64,8 @@ DendriteProcessor::DendriteProcessor()
     throwParam = params.getRawParameterValue ("throw");
     itchParam = params.getRawParameterValue ("frames");
     bypassParam = params.getRawParameterValue ("bypass");
+    timeParam = params.getRawParameterValue ("time");
+    dryParam = params.getRawParameterValue ("dry");
 }
 
 juce::AudioProcessorParameter* DendriteProcessor::getBypassParameter() const { return params.getParameter ("bypass"); }
@@ -76,6 +82,7 @@ void DendriteProcessor::prepareToPlay (double sampleRate, int)
 {
     setLatencySamples (0);
     engine.setControls (feedParam->load(), spaceParam->load(), false, (int) itchParam->load(), bypassParam->load() > 0.5f);
+    engine.setStyle ((int) timeParam->load(), dryParam->load() > 0.5f);
     engine.prepare ((float) sampleRate);
 }
 
@@ -115,6 +122,7 @@ void DendriteProcessor::run (juce::AudioBuffer<float>& buffer, bool forceBypass)
 
     engine.setControls (feedParam->load(), spaceParam->load(), throwParam->load() > 0.5f, (int) itchParam->load(),
                         forceBypass || bypassParam->load() > 0.5f);
+    engine.setStyle ((int) timeParam->load(), dryParam->load() > 0.5f);
     engine.process (buffer.getWritePointer (0), buffer.getWritePointer (1), n, hostTime);
 
     // Never hand a host a NaN or an infinity.
@@ -163,6 +171,7 @@ void DendriteProcessor::publish()
         ;
     d.body.store (v.body, relaxed);
     d.echoBody.store (v.echoBody, relaxed);
+    d.runaway.store (v.runaway, relaxed);
     d.bpm.store ((float) v.bpm, relaxed);
     d.hostPlaying.store (v.hostPlaying, relaxed);
     d.itching.store (v.itching, relaxed);

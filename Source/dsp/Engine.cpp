@@ -64,6 +64,7 @@ void Engine::reset()
     frameStartedIdle = true;
     quietFor = 1 << 30;
     wetNow = wetTarget;
+    dryNow = dryTarget;
     limiterEnv = 1.0f;
     corrLR = corrLL = corrRR = inPower = outPower = 0.0f;
     state = {};
@@ -181,12 +182,16 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         // Safety limiter on the echo only: the dry passes untouched, always. When the dry and
         // the echo together would pass -0.3 dBFS, the echo dips under the hit (instant, then
         // back over 120 ms), the way an engineer rides the return down. A seatbelt, not an effect.
-        const float room = std::min (wetRoom (l, wetL), wetRoom (r, wetR));
+        // dry off (a return track) fades over 30 ms; bypass always brings the dry back
+        const float dryWant = wetTarget > 0.5f ? dryTarget : 1.0f;
+        dryNow += std::clamp (dryWant - dryNow, -wetStep, wetStep);
+        const float dl = dryNow * l, dr = dryNow * r;
+        const float room = std::min (wetRoom (dl, wetL), wetRoom (dr, wetR));
         limiterEnv = room < limiterEnv ? room : room + limiterRelease * (limiterEnv - room);
         wetL *= limiterEnv;
         wetR *= limiterEnv;
-        const float outL = l + wetL;
-        const float outR = r + wetR;
+        const float outL = dl + wetL;
+        const float outR = dr + wetR;
         left[i] = outL;
         right[i] = outR;
 
@@ -205,6 +210,7 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
     state.hit = echo.takeHit();
     state.body = state.echo.body;
     state.echoBody = state.echo.echoBody;
+    state.runaway = state.echo.runaway;
     state.repetition = listener.repetition();
     state.frameProgress = (float) (std::fmod (std::max (0.0, beat), frameBeats) / frameBeats);
     state.boredom = std::min (1.0f, (float) boredFrames / 3.0f);
