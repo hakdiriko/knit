@@ -101,12 +101,17 @@ private:
         double born = 0.0;
         float life = 40.0f, growIn = 8.0f, brightness = 0.2f;
         float shiver = 0.0f; // a flash of light as a hit's wave passes through it
+        // impulses: a hit's wave enters the strand at its root and runs out to every tip
+        struct Pulse { double t0 = -1.0; float strength = 0.0f; bool red = false; };
+        std::array<Pulse, 3> pulses {};
+        uint32_t lastWave = 0;
+        float reach = 0.0f; // the longest path from root to tip (px)
     };
     struct Fibre
     {
         juce::Point<float> rest, p, v, prev, flowVel;
         int parent = -1; // index within the strand, -1 for its root
-        float length = 0.0f, bendRest = 0.0f;
+        float length = 0.0f, bendRest = 0.0f, path = 0.0f; // path: distance from the root along the strand
         float shake = 0.0f, shakeLast = 0.0f, shakeHz = 11.0f; // the tremor a passing wave leaves (px)
         double shakeAt = -1.0;
         uint8_t depth = 0;
@@ -176,9 +181,15 @@ private:
         juce::Point<float> origin;
         double born = 0.0;
         float strength = 0.0f, reached = 0.0f;
+        uint32_t id = 0;
+        bool red = false;
     };
+    uint32_t nextWave = 1;
+    float peakOut = 1.0e-3f, outRel = 0.0f, bodyRel = 0.0f; // the output against its own recent loudness
     std::vector<Wave> waves;
     juce::Array<LitFibre> lit;
+    struct PulseHead { juce::Point<float> at; float level = 0.0f; bool red = false; };
+    std::vector<PulseHead> pulseHeads;
     double nextSpark = 0.0;
 
     // the itch heads' own growth

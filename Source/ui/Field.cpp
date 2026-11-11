@@ -13,6 +13,15 @@ namespace
     constexpr int substeps = 6;
     constexpr float maxSpeed = 2500.0f; // px/s: a guard, never reached in normal use
 
+    // impulses along the tissue: how fast the head runs (px/s), how long its tail (px)
+    constexpr float pulseSpeed = 600.0f, pulseTail = 70.0f;
+    constexpr int maxLit = 700;
+    constexpr size_t maxHeads = 48;
+    float pulseFade (double age, float reach)
+    {
+        return age >= 0.0 && pulseSpeed * (float) age < reach + 6.0f * pulseTail ? 1.0f : 0.0f;
+    }
+
     juce::Point<float> rotated (juce::Point<float> v, float a)
     {
         const float c = std::cos (a), s = std::sin (a);
@@ -149,6 +158,8 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
     s.first = index * fibresPerStrand;
     s.count = 0;
     s.maxOrder = 1;
+    s.reach = 0.0f;
+    s.pulses = {};
 
     juce::Point<float> start;
     float angle = 0.0f;
@@ -179,6 +190,8 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
         f.depth = depth;
         f.order = order;
         f.length = parent >= 0 ? q.getDistanceFrom (fibres[(size_t) (s.first + parent)].rest) : 0.0f;
+        f.path = parent >= 0 ? fibres[(size_t) (s.first + parent)].path + f.length : 0.0f;
+        s.reach = std::max (s.reach, f.path);
         const int grand = parent >= 0 ? fibres[(size_t) (s.first + parent)].parent : -1;
         f.bendRest = grand >= 0 ? q.getDistanceFrom (fibres[(size_t) (s.first + grand)].rest) : 0.0f;
     };
@@ -226,10 +239,9 @@ void Field::tickSparks (double t, float dt)
     // impulses run along the strands toward their roots: more when the echo speaks, while
     // throwing, and in red while the itch plays
     auto& d = processor.display;
-    const float out = d.outLevel.load (std::memory_order_relaxed);
     if (t >= nextSpark && sparks.size() < maxSparks)
     {
-        const float rate = 0.35f + 7.0f * std::min (1.0f, 3.0f * out) + 10.0f * throwGlow + 8.0f * itchLit;
+        const float rate = 0.35f + 6.0f * bodyRel + 10.0f * throwGlow + 8.0f * itchLit;
         nextSpark = t - std::log (std::max (1.0e-4f, random.nextFloat())) / rate;
         const int si = random.nextInt (strandCount);
         const auto& s = strands[(size_t) si];
@@ -280,14 +292,14 @@ void Field::tremor (juce::Point<float> origin, float strength, double at)
         }
     if (waves.size() >= 12)
         waves.erase (waves.begin());
-    waves.push_back ({ origin, at, std::min (1.3f, strength), 0.0f });
+    waves.push_back ({ origin, at, std::min (1.3f, strength), 0.0f, nextWave++, itchLit > 0.3f });
 }
 
 void Field::tickTremors()
 {
     // the wave front runs out from where the hit grew; each strand it passes starts to tremble
     // across itself, the tips more than the roots, near ones harder than far ones
-    constexpr float frontSpeed = 1100.0f, decay = 0.13f;
+    constexpr float frontSpeed = 1100.0f, decay = 0.17f;
     const float reach = std::hypot ((float) getWidth(), (float) getHeight());
     for (size_t k = 0; k < waves.size();)
     {
@@ -308,7 +320,7 @@ void Field::tickTremors()
                     if (d <= w.reached || d > radius)
                         continue;
                     const float near = 0.3f + 0.7f * std::exp (-d / 320.0f);
-                    const float amp = side * w.strength * near * (0.9f + 2.6f * std::min (1.0f, (float) f.order / 7.0f));
+                    const float amp = side * w.strength * near * (1.8f + 4.2f * std::min (1.0f, (float) f.order / 7.0f));
                     if (std::abs (amp) >= std::abs (f.shake) * std::exp (-(float) (now - f.shakeAt) / decay))
                     {
                         f.shake = amp;
@@ -317,6 +329,16 @@ void Field::tickTremors()
                         f.shakeHz = 9.0f + 6.0f * (float) ((si * 7 + (size_t) i) % 5) / 4.0f;
                     }
                     s.shiver = std::max (s.shiver, w.strength * near);
+                    if (s.lastWave != w.id)
+                    {
+                        // the impulse enters at the root as the wave reaches the strand
+                        s.lastWave = w.id;
+                        auto* slot = &s.pulses[0];
+                        for (auto& p : s.pulses)
+                            if (p.t0 < 0.0 || p.strength * pulseFade (now - p.t0, s.reach) < slot->strength * pulseFade (now - slot->t0, s.reach))
+                                slot = &p;
+                        *slot = { w.born + d / frontSpeed, std::min (1.0f, w.strength * near), w.red };
+                    }
                 }
             }
             w.reached = radius;
@@ -367,13 +389,14 @@ void Field::paintTissue (juce::Graphics& g)
     const float sigma2 = 2.0f * 95.0f * 95.0f;
     juce::Path paths[3];
     lit.clearQuick();
+    pulseHeads.clear();
     for (const auto& s : strands)
     {
         const double age = now - s.born;
         if (age < 0.0 || s.count < 2)
             continue;
         const float grown = grownOrder (age, s.life, s.growIn, s.maxOrder);
-        const float alpha = (s.brightness + 0.35f * s.shiver) * std::min (1.0f, (float) age / 3.0f) * breathe;
+        const float alpha = (s.brightness * (1.0f + 1.2f * bodyRel) + 0.35f * s.shiver) * std::min (1.0f, (float) age / 3.0f) * breathe;
         if (alpha < 0.005f)
             continue;
         for (auto& p : paths)
@@ -403,6 +426,42 @@ void Field::paintTissue (juce::Graphics& g)
                                f.depth == 0 ? 1.3f : (f.depth == 1 ? 0.95f : 0.7f) });
             }
         }
+        // the impulses: a bright head running out from the root, a fading tail behind it
+        bool pulsing = false;
+        for (const auto& p : s.pulses)
+            pulsing = pulsing || (p.t0 >= 0.0 && now >= p.t0 && pulseFade (now - p.t0, s.reach) > 0.0f);
+        if (pulsing)
+            for (int i = 1; i < s.count && lit.size() < maxLit; ++i)
+            {
+                const auto& f = fibres[(size_t) (s.first + i)];
+                if ((float) f.order - 1.0f > grown)
+                    continue;
+                float b = 0.0f;
+                bool red = false;
+                for (const auto& p : s.pulses)
+                {
+                    if (p.t0 < 0.0 || now < p.t0)
+                        continue;
+                    const float head = pulseSpeed * (float) (now - p.t0);
+                    const float behind = head - f.path;
+                    if (behind < -f.length || behind > 6.0f * pulseTail)
+                        continue;
+                    const float v = p.strength * (behind < 0.0f ? 1.0f + behind / f.length : std::exp (-behind / pulseTail));
+                    if (v > b)
+                    {
+                        b = v;
+                        red = p.red;
+                    }
+                }
+                if (b < 0.03f)
+                    continue;
+                const auto a = fibres[(size_t) (s.first + f.parent)].p;
+                const auto c = red ? colour::redText : colour::ink;
+                lit.add ({ { a, f.p }, c.withAlpha (std::min (0.95f, 0.15f + 0.85f * b)), (f.depth == 0 ? 1.3f : (f.depth == 1 ? 0.95f : 0.7f)) * (1.0f + 0.6f * b) });
+                if (b > 0.55f && pulseHeads.size() < maxHeads)
+                    pulseHeads.push_back ({ f.p, b, red });
+            }
+
         const float widths[] = { 1.3f, 0.9f, 0.6f };
         for (int k = 0; k < 3; ++k)
         {
@@ -418,6 +477,12 @@ void Field::paintTissue (juce::Graphics& g)
         g.setColour (l.colour);
         g.drawLine (l.line, l.width);
     }
+    for (const auto& h : pulseHeads)
+    {
+        g.setOpacity (0.55f * h.level);
+        g.drawImage (h.red ? glowRed : glowWhite, juce::Rectangle<float> (16.0f, 16.0f).withCentre (h.at));
+    }
+    g.setOpacity (1.0f);
 
     for (const auto& sp : sparks)
     {
@@ -1132,8 +1197,13 @@ void Field::tick (double t)
 
     const float target = dragging || hovering ? 1.0f : 0.0f;
     labelAlpha += (target - labelAlpha) * 0.12f;
+    // loudness against the track's own last few seconds, so a quiet mix lights up like a loud one
     const float out = d.outLevel.load (std::memory_order_relaxed);
-    pointGlow += (std::min (1.0f, 4.0f * out) - pointGlow) * 0.15f;
+    peakOut = std::max ({ out, 1.0e-4f, peakOut * std::exp (-dt / 6.0f) });
+    const float rel = out > 3.0e-4f ? std::min (1.0f, out / peakOut) : 0.0f;
+    outRel = rel;
+    bodyRel += (rel - bodyRel) * (1.0f - std::exp (-dt / 0.3f));
+    pointGlow += (std::min (1.0f, 1.3f * rel) - pointGlow) * 0.15f;
     const float throwing = std::max (throwHeld ? 1.0f : 0.0f, d.throwing.load (std::memory_order_relaxed));
     throwGlow += (throwing - throwGlow) * (throwing > throwGlow ? 0.5f : 0.08f);
     touchGlow += ((touching ? 1.0f : 0.0f) - touchGlow) * (touching ? 0.5f : 0.1f);
