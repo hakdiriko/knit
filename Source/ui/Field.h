@@ -106,10 +106,11 @@ private:
         std::array<Pulse, 3> pulses {};
         uint32_t lastWave = 0;
         float reach = 0.0f; // the longest path from root to tip (px)
+        float swayAmp = 0.15f, swayRate = 0.2f, swayPhase = 0.0f; // its own slow sway (rad, rad/s)
     };
     struct Fibre
     {
-        juce::Point<float> rest, p, v, prev, flowVel;
+        juce::Point<float> rest, restBase, p, v, prev, flowVel; // restBase: the shape it grew in; rest: that shape, swaying
         int parent = -1; // index within the strand, -1 for its root
         float length = 0.0f, bendRest = 0.0f, path = 0.0f; // path: distance from the root along the strand
         float shake = 0.0f, shakeLast = 0.0f, shakeHz = 11.0f; // the tremor a passing wave leaves (px)
@@ -185,7 +186,7 @@ private:
         bool red = false;
     };
     uint32_t nextWave = 1;
-    float peakOut = 1.0e-3f, outRel = 0.0f, bodyRel = 0.0f; // the output against its own recent loudness
+    float hitGlow = 0.0f, bodyRel = 0.0f; // hits and the held level, against the track's own recent loudness
     std::vector<Wave> waves;
     juce::Array<LitFibre> lit;
     struct PulseHead { juce::Point<float> at; float level = 0.0f; bool red = false; };

@@ -26,8 +26,9 @@ public:
     // A pulse: push the fluid outwards from `p` (positive) or suck it in (negative).
     void pulse (juce::Point<float> p, float strength, float radius);
 
-    // Advance by dt seconds; `swirl` is the strength of the ambient curl noise (px/s).
-    void step (float dt, float time, float swirl);
+    // Advance by dt seconds; `swirl` is the strength of the ambient curl noise (px/s), `tide`
+    // of a much wider, slower swell under it (half-minute periods, whole-window wide).
+    void step (float dt, float time, float swirl, float tide = 0.0f);
 
     // The fluid's velocity at a point, in px/s.
     juce::Point<float> velocity (juce::Point<float> p) const;

@@ -182,7 +182,7 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
 
     auto place = [&] (int me, juce::Point<float> q, int parent, uint8_t depth, uint16_t order) {
         auto& f = fibres[(size_t) (s.first + me)];
-        f.rest = f.p = f.prev = q;
+        f.rest = f.restBase = f.p = f.prev = q;
         f.v = f.flowVel = {};
         f.shake = f.shakeLast = 0.0f;
         f.shakeAt = -1.0;
@@ -224,6 +224,10 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
         }
     }
 
+    // each strand sways on its own slow clock, curling more towards its tips, like a frond
+    s.swayAmp = (0.08f + 0.14f * random.nextFloat()) * (random.nextBool() ? 1.0f : -1.0f);
+    s.swayRate = juce::MathConstants<float>::twoPi / (22.0f + 24.0f * random.nextFloat());
+    s.swayPhase = random.nextFloat() * juce::MathConstants<float>::twoPi;
     s.life = 30.0f + 50.0f * random.nextFloat();
     s.growIn = 5.0f + 9.0f * random.nextFloat();
     s.brightness = random.nextFloat() < 0.1f ? 0.34f : 0.08f + 0.17f * random.nextFloat();
@@ -923,7 +927,25 @@ void Field::simulate (float dt)
     if (throwGlow > 0.05f)
         medium.pulse (lp, 30.0f * throwGlow * dt * 60.0f, 90.0f);
     const float breath = processor.display.breath.load (std::memory_order_relaxed);
-    medium.step (dt, (float) now, 9.0f + 6.0f * breath);
+    medium.step (dt, (float) now, 9.0f + 6.0f * breath, 11.0f + 9.0f * bodyRel);
+
+    // the tissue's own slow sway: each strand's remembered shape curls a little, back and forth
+    for (auto& s : strands)
+    {
+        if (s.count < 2 || s.reach < 1.0f)
+            continue;
+        const float tt = (float) now;
+        const float theta = s.swayAmp * (std::sin (s.swayRate * tt + s.swayPhase) + 0.4f * std::sin (0.43f * s.swayRate * tt + 2.0f * s.swayPhase));
+        const auto root = fibres[(size_t) s.first].restBase;
+        for (int i = 1; i < s.count; ++i)
+        {
+            auto& f = fibres[(size_t) (s.first + i)];
+            const float a = theta * f.path / s.reach;
+            const float c = std::cos (a), sn = std::sin (a);
+            const auto d = f.restBase - root;
+            f.rest = root + juce::Point<float> (d.x * c - d.y * sn, d.x * sn + d.y * c);
+        }
+    }
 
     // what the medium wants each particle to do (sampled once per frame)
     for (auto& f : fibres)
@@ -973,7 +995,8 @@ void Field::simulate (float dt)
                     auto& grand = fibres[(size_t) (s.first + parent.parent)];
                     solveDistance (grand.p, grand.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.bendRest, bendTissue);
                 }
-                solveAnchor (f.p, f.rest, shapeTissue);
+                const float loose = std::min (1.0f, f.path / std::max (1.0f, s.reach));
+                solveAnchor (f.p, f.rest, shapeTissue * (1.0f / ((1.0f - 0.92f * loose) * (1.0f - 0.92f * loose))));
             }
 
         // the growth
@@ -1197,13 +1220,13 @@ void Field::tick (double t)
 
     const float target = dragging || hovering ? 1.0f : 0.0f;
     labelAlpha += (target - labelAlpha) * 0.12f;
-    // loudness against the track's own last few seconds, so a quiet mix lights up like a loud one
-    const float out = d.outLevel.load (std::memory_order_relaxed);
-    peakOut = std::max ({ out, 1.0e-4f, peakOut * std::exp (-dt / 6.0f) });
-    const float rel = out > 3.0e-4f ? std::min (1.0f, out / peakOut) : 0.0f;
-    outRel = rel;
-    bodyRel += (rel - bodyRel) * (1.0f - std::exp (-dt / 0.3f));
-    pointGlow += (std::min (1.0f, 1.3f * rel) - pointGlow) * 0.15f;
+    // loudness against the track's own last few seconds (the processor measures it), so a quiet
+    // mix lights up like a loud one: the hits flash the light, the held level makes it glow
+    const float hitNow = d.hit.exchange (0.0f, std::memory_order_relaxed);
+    hitGlow = std::max (hitNow, hitGlow * std::exp (-dt / 0.12f));
+    const float held = std::max (d.body.load (std::memory_order_relaxed), d.echoBody.load (std::memory_order_relaxed));
+    bodyRel += (std::min (1.0f, held) - bodyRel) * (1.0f - std::exp (-dt / 0.3f));
+    pointGlow += (std::min (1.0f, std::max (hitGlow, 0.8f * bodyRel)) - pointGlow) * 0.25f;
     const float throwing = std::max (throwHeld ? 1.0f : 0.0f, d.throwing.load (std::memory_order_relaxed));
     throwGlow += (throwing - throwGlow) * (throwing > throwGlow ? 0.5f : 0.08f);
     touchGlow += ((touching ? 1.0f : 0.0f) - touchGlow) * (touching ? 0.5f : 0.1f);

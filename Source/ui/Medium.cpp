@@ -127,10 +127,26 @@ void Medium::project()
     boundary (v, 2);
 }
 
-void Medium::step (float dt, float time, float swirl)
+void Medium::step (float dt, float time, float swirl, float tide)
 {
     if (nx == 0 || dt <= 0.0f)
         return;
+
+    // the tide: one or two wide gyres drifting across the window over 20-40 s
+    if (tide > 0.0f)
+    {
+        const float k = tide * dt * 1.5f;
+        const float a = 0.0048f, b = 0.0061f;
+        for (int j = 1; j <= ny; ++j)
+            for (int i = 1; i <= nx; ++i)
+            {
+                const float x = (float) i * cell, y = (float) j * cell;
+                const float p = a * x + 0.19f * time, q = b * y - 0.15f * time + 0.7f;
+                // psi = sin p * sin q;  (u, v) = (d psi/dy, -d psi/dx), normalised to ~1
+                u[(size_t) index (i, j)] += k * std::sin (p) * std::cos (q);
+                v[(size_t) index (i, j)] -= k * std::cos (p) * std::sin (q) * (a / b);
+            }
+    }
 
     // ambient curl noise: the curl of a smooth scalar field is divergence-free, so it
     // swirls without bunching up (Bridson's curl noise, here with a few drifting waves)
