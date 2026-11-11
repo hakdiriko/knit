@@ -190,7 +190,7 @@ juce::Rectangle<float> ItchStrip::dryArea() const
 juce::String ItchStrip::getTooltip()
 {
     if (timeArea().contains (mouseAt))
-        return juce::String (juce::CharPointer_UTF8 ("how the repeats fall: dotted, triplet or half time Â· click to change"));
+        return juce::String (juce::CharPointer_UTF8 ("how the repeats fall: dotted, triplet or half time \xc2\xb7 click to change"));
     if (dryArea().contains (mouseAt))
         return "dry: off for a return track (echo only)";
     return {};

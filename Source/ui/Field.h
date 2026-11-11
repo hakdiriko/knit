@@ -229,6 +229,9 @@ private:
     double pressAt = 0.0;
     float hoverDarkGlow = 0.0f, hintAlpha = 0.0f;
     float runaway = 0.0f; // a throw held at endless, running away into a howl
+    // the input's own level, as it is (not against the track): a tight second skin on the light
+    // when it comes in hot, a dimmer core when it is very quiet. 0..1, slow
+    float inputHot = 0.0f, inputQuiet = 0.0f, inputPeak = 0.0f;
     double nextHowl = 0.0;
     static inline int dragsThisSession = 0;
     double nextSpark = 0.0;

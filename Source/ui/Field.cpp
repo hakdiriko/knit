@@ -1430,6 +1430,20 @@ void Field::tick (double t)
     tickSparks (t, dt);
     tickSynapses (dt);
 
+    // the input level as it is: hot past ~-9 dBFS RMS, quiet when even its loudest is under ~-36 dBFS RMS
+    {
+        const float in = d.inLevel.load (std::memory_order_relaxed);
+        const float db = 20.0f * std::log10 (std::max (1.0e-6f, in));
+        const float hot = std::clamp ((db + 12.0f) / 6.0f, 0.0f, 1.0f);
+        // quiet is judged on the loudest of the last few seconds, so a fading tail or a soft
+        // passage is not called quiet; silence (nothing coming in at all) is not either
+        inputPeak = std::max (in, inputPeak * std::exp (-dt / 6.0f));
+        const float peakDb = 20.0f * std::log10 (std::max (1.0e-6f, inputPeak));
+        const float quiet = db > -75.0f ? std::clamp ((-32.0f - peakDb) / 8.0f, 0.0f, 1.0f) : 0.0f;
+        inputHot += (hot - inputHot) * (hot > inputHot ? 0.12f : 0.02f); // quick to show, slow to let go
+        inputQuiet += (quiet - inputQuiet) * 0.01f; // ~2 s: a quiet passage is not a quiet input
+    }
+
     // the howl: impulses pour out of the light faster and faster while it runs away
     runaway += (d.runaway.load (std::memory_order_relaxed) - runaway) * 0.2f;
     if (runaway > 0.08f && t >= nextHowl)
@@ -1555,7 +1569,30 @@ void Field::paint (juce::Graphics& g)
     membrane.closeSubPath();
     g.setColour (colour::ink.withAlpha (0.3f + 0.35f * labelAlpha + 0.3f * throwGlow));
     g.strokePath (membrane, juce::PathStrokeType (1.0f));
-    g.setColour (colour::ink);
+
+    // a hot input stretches a second skin, tight and trembling, just outside the first
+    if (inputHot > 0.02f)
+    {
+        juce::Path skin;
+        const float r0 = radius + 5.0f;
+        for (int k = 0; k <= 64; ++k)
+        {
+            const float a = (float) k / 64.0f * 2.0f * pi;
+            const float r = r0 + inputHot * (0.35f * std::sin (13.0f * a + 29.0f * t) + 0.25f * std::sin (19.0f * a - 37.0f * t + 1.0f)
+                                               + 0.15f * std::sin (29.0f * a + 53.0f * t + 2.0f));
+            const juce::Point<float> q { lp.x + r * std::cos (a), lp.y + r * std::sin (a) };
+            if (k == 0)
+                skin.startNewSubPath (q);
+            else
+                skin.lineTo (q);
+        }
+        skin.closeSubPath();
+        g.setColour (colour::ink.withAlpha (0.55f * inputHot));
+        g.strokePath (skin, juce::PathStrokeType (0.8f));
+    }
+
+    // a very quiet input dims the core: the light still moves, but it is hard to see
+    g.setColour (colour::ink.withAlpha (1.0f - 0.55f * inputQuiet));
     g.fillEllipse (juce::Rectangle<float> (7.0f + 3.0f * throwGlow, 7.0f + 3.0f * throwGlow).withCentre (lp));
 
     // what the two directions mean, at the edges, while the mouse is over the field
@@ -1633,8 +1670,12 @@ void Field::mouseExit (const juce::MouseEvent&)
 
 juce::String Field::getTooltip()
 {
+    if (hovering && inputHot > 0.5f)
+        return "the input is hot: the echo saturates it. turn it down before dendrite for a cleaner tail";
+    if (hovering && inputQuiet > 0.5f)
+        return "the input is very quiet: the echo works, but the tape barely warms. turn it up before dendrite";
     if (hovering)
-        return juce::String (juce::CharPointer_UTF8 ("drag: up for feed, right for space Â· shift: fine Â· wheel: nudge Â· double-click: home"));
+        return juce::String (juce::CharPointer_UTF8 ("drag: up for feed, right for space \xc2\xb7 shift: fine \xc2\xb7 wheel: nudge \xc2\xb7 double-click: home"));
     if (hoverDark)
         return "press and hold the dark to throw";
     return {};
