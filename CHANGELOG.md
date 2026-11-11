@@ -21,6 +21,17 @@
 - **time:** dotted (dotted ⅛ + ¼, as before), triplet (¼ triplet + ¼) or half (dotted ¼ + ½, half-time dub). Switching glides the heads like tape.
 - **dry:** on by default. Off for a return track in Live: only the echo and the itch come out, and a send feeds it.
 
+**The window**
+
+- Every hit and echo sends impulses along the strands; held sounds glow. The window follows loudness relative to your track.
+- The background lives: a slow tide moves the medium, tips drape and sway, strands grow, branch, wither and pull back, and where two touch they join into a synapse that carries impulses and can snap.
+- "feed" and "space" sit faintly at the field's edges while you hover; resting in the dark shows a faint nerve to the light. A press in the dark throws only after 80 ms, so clicking to focus the window doesn't throw. Tooltips name the hidden moves.
+- Head names stay faintly visible; itch lengths are faint ticks until you reach for them; the chosen itch LED warms as repetition builds; small text never drops under 10 px.
+- time (dotted / triplet / half) and dry on/off are clickable words on the itch strip.
+- A runaway howls: the light swells and wobbles, the tissue strobes, impulses pour out.
+- The hit tremor shivers each strand as one body (dense repeats no longer zigzag the strands).
+- The light shows your input's level: a tight shimmering skin when it comes in hot, a dimmer core when it's very quiet, with a tooltip saying what to do.
+
 ## 1.1.1 (two things you found)
 
 - **The window answers on your second monitor.** On a monitor with a different display scale (125 % next to 100 %, say), Windows handed the window's mouse positions over in the wrong scale, so clicks missed everything. dendrite is built on JUCE 9.0.5 now, which fixes that and keeps the window's size when you drag it between monitors.
