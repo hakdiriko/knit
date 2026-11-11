@@ -169,6 +169,8 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
     s.count = 0;
     s.maxOrder = 1;
     s.reach = 0.0f;
+    s.shake = 0.0f;
+    s.shakeAt = -1.0;
     s.pulses = {};
 
     juce::Point<float> start;
@@ -194,8 +196,7 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
         auto& f = fibres[(size_t) (s.first + me)];
         f.rest = f.restBase = f.p = f.prev = q;
         f.v = f.flowVel = {};
-        f.shake = f.shakeLast = 0.0f;
-        f.shakeAt = -1.0;
+        f.shakeLast = 0.0f;
         f.parent = parent;
         f.depth = depth;
         f.order = order;
@@ -301,20 +302,20 @@ void Field::tickSparks (double t, float dt)
     }
 }
 
-void Field::tremor (juce::Point<float> origin, float strength, double at)
+void Field::tremor (juce::Point<float> origin, float strength, double at, bool shakes)
 {
     if (strength < 0.04f)
         return;
     // a repeat lands as many branches at once: one wave per moment and place is enough
     for (auto& w : waves)
-        if (std::abs (w.born - at) < 0.045 && w.origin.getDistanceFrom (origin) < 90.0f)
+        if (w.shakes == shakes && std::abs (w.born - at) < 0.045 && w.origin.getDistanceFrom (origin) < 90.0f)
         {
             w.strength = std::max (w.strength, strength);
             return;
         }
     if (waves.size() >= 12)
         waves.erase (waves.begin());
-    waves.push_back ({ origin, at, std::min (1.3f, strength), 0.0f, nextWave++, itchLit > 0.3f });
+    waves.push_back ({ origin, at, std::min (1.3f, strength), 0.0f, nextWave++, itchLit > 0.3f, shakes });
 }
 
 void Field::tickTremors()
@@ -342,13 +343,20 @@ void Field::tickTremors()
                     if (d <= w.reached || d > radius)
                         continue;
                     const float near = 0.3f + 0.7f * std::exp (-d / 320.0f);
-                    const float amp = side * w.strength * near * (1.8f + 4.2f * std::min (1.0f, (float) f.order / 7.0f));
-                    if (std::abs (amp) >= std::abs (f.shake) * std::exp (-(float) (now - f.shakeAt) / decay))
+                    const float amp = side * w.strength * near;
+                    if (w.shakes && std::abs (amp) >= std::abs (s.shake) * std::exp (-(float) (now - s.shakeAt) / decay))
                     {
-                        f.shake = amp;
-                        f.shakeAt = w.born + d / frontSpeed;
-                        f.shakeLast = 0.0f;
-                        f.shakeHz = 9.0f + 6.0f * (float) ((si * 7 + (size_t) i) % 5) / 4.0f;
+                        s.shake = amp;
+                        s.shakeAt = w.born + d / frontSpeed;
+                        s.shakeHz = 9.0f + 6.0f * (float) ((si * 7) % 5) / 4.0f;
+                        // across the strand as a whole: square to the line from its root to the middle of its shape
+                        juce::Point<float> mid;
+                        for (int k = 1; k < s.count; ++k)
+                            mid += fibres[(size_t) (s.first + k)].rest;
+                        auto along = mid / (float) (s.count - 1) - fibres[(size_t) s.first].rest;
+                        const float len = along.getDistanceFromOrigin();
+                        if (len > 1.0e-3f)
+                            s.shakeDir = { -along.y / len, along.x / len };
                     }
                     s.shiver = std::max (s.shiver, w.strength * near);
                     if (s.lastWave != w.id)
@@ -374,30 +382,28 @@ void Field::tickTremors()
     }
 
     // the tremor itself: a damped shiver, applied as a displacement the rods then carry
-    for (const auto& s : strands)
+    for (auto& s : strands)
+    {
+        if (s.shakeAt < 0.0)
+            continue;
+        const float tau = (float) (now - s.shakeAt);
+        if (tau < 0.0f)
+            continue;
+        float o = 0.0f; // the last pass after it dies brings every fibre back to zero
+        if (tau < 6.0f * decay)
+            o = s.shake * std::sin (juce::MathConstants<float>::twoPi * s.shakeHz * tau) * std::exp (-tau / decay);
+        else
+            s.shakeAt = -1.0;
         for (int i = 1; i < s.count; ++i)
         {
             auto& f = fibres[(size_t) (s.first + i)];
-            if (f.shakeAt < 0.0)
-                continue;
-            const float tau = (float) (now - f.shakeAt);
-            if (tau < 0.0f)
-                continue;
-            float o = 0.0f;
-            if (tau < 6.0f * decay)
-                o = f.shake * std::sin (juce::MathConstants<float>::twoPi * f.shakeHz * tau) * std::exp (-tau / decay);
-            else
-                f.shakeAt = -1.0;
-            const auto& parent = fibres[(size_t) (s.first + f.parent)];
-            auto across = f.rest - parent.rest;
-            const float len = across.getDistanceFromOrigin();
-            if (len < 1.0e-3f)
-                continue;
-            across = { -across.y / len, across.x / len };
-            f.p += across * (o - f.shakeLast);
-            f.prev += across * (o - f.shakeLast); // a displacement, not a velocity: it does not fling the strand
-            f.shakeLast = o;
+            const float along = std::min (1.0f, f.path / std::max (1.0f, s.reach));
+            const float mine = o * (0.6f + 5.4f * along); // still at the root, most at the tips
+            f.p += s.shakeDir * (mine - f.shakeLast);
+            f.prev += s.shakeDir * (mine - f.shakeLast); // a displacement, not a velocity: it does not fling the strand
+            f.shakeLast = mine;
         }
+    }
     const float fade = std::exp (-(float) (1.0 / 60.0) / 0.18f);
     for (auto& s : strands)
         s.shiver *= fade;
@@ -586,7 +592,8 @@ void Field::paintTissue (juce::Graphics& g)
         const float shown = shownPath (age, s.life, s.growRate, s.reach);
         const float wither = witherOf (age, s.life);
         const float alpha = (s.brightness * (1.0f + 1.2f * bodyRel) + 0.35f * s.shiver) * std::min (1.0f, (float) age / 3.0f) * breathe
-                            * (1.0f - 0.55f * witherOf (age, s.life));
+                            * (1.0f - 0.55f * witherOf (age, s.life))
+                            * (1.0f + 1.6f * runaway * (0.5f + 0.5f * std::sin ((float) now * 44.0f))); // the howl strobes the tissue
         if (alpha < 0.005f)
             continue;
         for (auto& p : paths)
@@ -1423,6 +1430,15 @@ void Field::tick (double t)
     tickSparks (t, dt);
     tickSynapses (dt);
 
+    // the howl: impulses pour out of the light faster and faster while it runs away
+    runaway += (d.runaway.load (std::memory_order_relaxed) - runaway) * 0.2f;
+    if (runaway > 0.08f && t >= nextHowl)
+    {
+        tremor (light(), 0.45f + 0.7f * runaway, t, false);
+        medium.pulse (light(), 90.0f * runaway, 80.0f + 60.0f * runaway);
+        nextHowl = t + 0.22 - 0.14 * (double) runaway;
+    }
+
     if (pendingThrow && t - pressAt >= 0.08)
     {
         pendingThrow = false;
@@ -1516,19 +1532,20 @@ void Field::paint (juce::Graphics& g)
 
     // the light: glows with what comes out, breathes with the echo, flares on a throw
     const float breath = d.breath.load (std::memory_order_relaxed);
-    const float halo = 64.0f + 44.0f * pointGlow + 10.0f * breath + 70.0f * throwGlow;
-    g.setOpacity (0.2f + 0.4f * pointGlow + 0.35f * throwGlow);
+    const float halo = 64.0f + 44.0f * pointGlow + 10.0f * breath + 70.0f * throwGlow + 150.0f * runaway;
+    g.setOpacity (std::min (1.0f, 0.2f + 0.4f * pointGlow + 0.35f * throwGlow + 0.3f * runaway));
     g.drawImage (glowWhite, juce::Rectangle<float> (halo, halo).withCentre (lp));
 
     // a membrane, not a circle: it never holds the same shape
     juce::Path membrane;
     const float t = (float) now;
-    const float radius = 11.0f + 2.5f * labelAlpha + 6.0f * throwGlow;
+    const float radius = 11.0f + 2.5f * labelAlpha + 6.0f * throwGlow + 8.0f * runaway;
     for (int k = 0; k <= 48; ++k)
     {
         const float a = (float) k / 48.0f * 2.0f * pi;
-        const float r = radius + 0.9f * std::sin (3.0f * a + 1.3f * t) + 0.6f * std::sin (5.0f * a - 0.9f * t + 2.0f)
-                        + 0.4f * std::sin (7.0f * a + 2.1f * t);
+        const float wobble = 1.0f + 3.0f * runaway;
+        const float r = radius + wobble * (0.9f * std::sin (3.0f * a + 1.3f * t) + 0.6f * std::sin (5.0f * a - 0.9f * t + 2.0f)
+                                           + 0.4f * std::sin (7.0f * a + (2.1f + 9.0f * runaway) * t));
         const juce::Point<float> q { lp.x + r * std::cos (a), lp.y + r * std::sin (a) };
         if (k == 0)
             membrane.startNewSubPath (q);

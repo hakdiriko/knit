@@ -112,14 +112,18 @@ private:
         float reach = 0.0f; // the longest path from root to tip (px)
         float witherNow = 0.0f; // 0..1 as it withers at the end of its life
         float swayAmp = 0.15f, swayRate = 0.2f, swayPhase = 0.0f; // its own slow sway (rad, rad/s)
+        // the tremor a passing wave leaves: one damped oscillator for the whole strand, scaled from root
+        // to tip, so it shivers as one body (fibre by fibre it zigzagged under dense repeats)
+        float shake = 0.0f, shakeHz = 11.0f;
+        double shakeAt = -1.0;
+        juce::Point<float> shakeDir { 0.0f, 1.0f };
     };
     struct Fibre
     {
         juce::Point<float> rest, restBase, p, v, prev, flowVel; // restBase: the shape it grew in; rest: that shape, swaying
         int parent = -1; // index within the strand, -1 for its root
         float length = 0.0f, bendRest = 0.0f, path = 0.0f; // path: distance from the root along the strand
-        float shake = 0.0f, shakeLast = 0.0f, shakeHz = 11.0f; // the tremor a passing wave leaves (px)
-        double shakeAt = -1.0;
+        float shakeLast = 0.0f; // its share of the strand's tremor, last frame (px)
         uint8_t depth = 0;
         uint16_t order = 0;
     };
@@ -152,7 +156,7 @@ private:
     void simulate (float dt);
     void seedStrand (Strand&, double now, bool midLife);
     void tickSparks (double now, float dt);
-    void tremor (juce::Point<float> origin, float strength, double at);
+    void tremor (juce::Point<float> origin, float strength, double at, bool shakes = true);
     void tickTremors();
     void tickSynapses (float dt);
     void solveSynapses (float h);
@@ -191,7 +195,7 @@ private:
         double born = 0.0;
         float strength = 0.0f, reached = 0.0f;
         uint32_t id = 0;
-        bool red = false;
+        bool red = false, shakes = true; // a howl wave lights and pulses but does not shake: stacked shakes zigzag
     };
     uint32_t nextWave = 1;
     float hitGlow = 0.0f, bodyRel = 0.0f; // hits and the held level, against the track's own recent loudness
@@ -224,6 +228,8 @@ private:
     juce::Point<float> hoverAt;
     double pressAt = 0.0;
     float hoverDarkGlow = 0.0f, hintAlpha = 0.0f;
+    float runaway = 0.0f; // a throw held at endless, running away into a howl
+    double nextHowl = 0.0;
     static inline int dragsThisSession = 0;
     double nextSpark = 0.0;
 

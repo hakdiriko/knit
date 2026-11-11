@@ -19,9 +19,13 @@ namespace
 //==============================================================================
 ItchStrip::ItchStrip (DendriteProcessor& p)
     : processor (p),
-      link (*p.params.getParameter ("frames"), [this] (float v) { choice = juce::roundToInt (v); })
+      link (*p.params.getParameter ("frames"), [this] (float v) { choice = juce::roundToInt (v); }),
+      timeLink (*p.params.getParameter ("time"), [this] (float v) { timeChoice = juce::roundToInt (v); }),
+      dryLink (*p.params.getParameter ("dry"), [this] (float v) { dryOn = v > 0.5f; })
 {
     link.sendInitialUpdate();
+    timeLink.sendInitialUpdate();
+    dryLink.sendInitialUpdate();
     // one image each, kept rescaled separately for the bead's size and the lamps' size
     beadOff.source = lampOff.source = load (BinaryData::ledoff_png, BinaryData::ledoff_pngSize);
     beadOn.source = lampOn.source = load (BinaryData::ledon_png, BinaryData::ledon_pngSize);
@@ -133,6 +137,22 @@ void ItchStrip::paint (juce::Graphics& g)
         }
     }
 
+    // how the repeats fall, and the dry: grey, since red is the itch's alone
+    {
+        static const char* times[] = { "dotted", "triplet", "half" };
+        const bool overTime = timeArea().contains (mouseAt) && hovering, overDry = dryArea().contains (mouseAt) && hovering;
+        g.setFont (fonts->small (*this, fonts->light, 12.0f, 0.06f));
+        g.setColour (colour::inkDim.withAlpha (overTime ? 0.95f : 0.6f));
+        g.drawText (times[std::clamp (timeChoice, 0, 2)], timeArea(), juce::Justification::centredLeft);
+        g.setColour (colour::inkDim.withAlpha (dryOn ? (overDry ? 0.95f : 0.6f) : (overDry ? 0.45f : 0.22f)));
+        g.drawText ("dry", dryArea(), juce::Justification::centredLeft);
+        if (! dryOn)
+        {
+            const auto r = dryArea();
+            g.drawLine (r.getX(), r.getCentreY() + 0.5f, r.getX() + 19.0f, r.getCentreY() + 0.5f, 0.8f);
+        }
+    }
+
     // the heads: five lamps; a name appears only while its head plays
     if (! headsArea.isEmpty())
     {
@@ -156,8 +176,38 @@ void ItchStrip::paint (juce::Graphics& g)
     }
 }
 
+juce::Rectangle<float> ItchStrip::timeArea() const
+{
+    // two quiet words between the itch and the heads: how the repeats fall, and the dry
+    return { dotsLeft + 12.0f * 22.0f + 10.0f, dot (0).y - 17.0f, 64.0f, 15.0f };
+}
+
+juce::Rectangle<float> ItchStrip::dryArea() const
+{
+    return timeArea().translated (0.0f, 18.0f);
+}
+
+juce::String ItchStrip::getTooltip()
+{
+    if (timeArea().contains (mouseAt))
+        return juce::String (juce::CharPointer_UTF8 ("how the repeats fall: dotted, triplet or half time Â· click to change"));
+    if (dryArea().contains (mouseAt))
+        return "dry: off for a return track (echo only)";
+    return {};
+}
+
 void ItchStrip::mouseDown (const juce::MouseEvent& e)
 {
+    if (timeArea().contains (e.position))
+    {
+        timeLink.setValueAsCompleteGesture ((float) ((timeChoice + 1) % 3));
+        return;
+    }
+    if (dryArea().contains (e.position))
+    {
+        dryLink.setValueAsCompleteGesture (dryOn ? 0.0f : 1.0f);
+        return;
+    }
     if (! dotsArea().expanded (4.0f, 0.0f).contains (e.position))
         return;
     dragging = true;
@@ -181,7 +231,8 @@ void ItchStrip::mouseUp (const juce::MouseEvent&)
 void ItchStrip::mouseMove (const juce::MouseEvent& e)
 {
     hovering = true;
-    const bool over = dotsArea().expanded (4.0f, 0.0f).contains (e.position);
+    mouseAt = e.position;
+    const bool over = dotsArea().expanded (4.0f, 0.0f).contains (e.position) || timeArea().contains (e.position) || dryArea().contains (e.position);
     setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
