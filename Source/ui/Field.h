@@ -50,6 +50,8 @@ public:
     // For the snapshot tool: move the light or touch the field without a mouse.
     void simulateTouch (juce::Point<float> unit, bool down);
     void simulateMove (juce::Point<float> unit);
+    // For the snapshot tool's with/without comparison: let strands join (synapses) or not.
+    void setSynapses (bool on) { synapsesOn = on; }
 
 private:
     enum Kind : uint8_t { echoKind, throwKind, screamKind, laughKind, manipulateKind, swarmKind, ghostKind };
@@ -150,6 +152,9 @@ private:
     void tickSparks (double now, float dt);
     void tremor (juce::Point<float> origin, float strength, double at);
     void tickTremors();
+    void tickSynapses (float dt);
+    void solveSynapses (float h);
+    void paintSynapses (juce::Graphics&);
     juce::Colour growthColour (Kind, float vis) const;
     void paintTissue (juce::Graphics&);
     void paintGrowth (juce::Graphics&);
@@ -193,6 +198,22 @@ private:
     struct PulseHead { juce::Point<float> at; float level = 0.0f; bool red = false; };
     std::vector<PulseHead> pulseHeads;
     std::vector<juce::Point<float>> growthTips;
+
+    // synapses: where a strand's tip touches another strand they join with a soft spring,
+    // pull each other taut, pass impulses across, and tear apart when stretched too far
+    struct Synapse
+    {
+        int sa = -1, fa = -1, sb = -1, fb = -1; // strand and fibre at each end
+        double bornA = 0.0, bornB = 0.0;        // the strands' birth times, to notice a reseed
+        double born = 0.0;
+        float rest = 4.0f, life = 30.0f, stretch = 0.0f, flash = 0.0f;
+        double crossedA = -1.0, crossedB = -1.0;  // the last impulse each way, so one crosses once
+    };
+    std::vector<Synapse> synapses;
+    struct Snap { juce::Point<float> at; double when = 0.0; };
+    std::vector<Snap> snaps;
+    double nextSynapseCheck = 0.0;
+    bool synapsesOn = true;
     double nextSpark = 0.0;
 
     // the itch heads' own growth

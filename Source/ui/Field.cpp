@@ -403,6 +403,171 @@ void Field::tickTremors()
         s.shiver *= fade;
 }
 
+//==============================================================================
+// Synapses
+void Field::tickSynapses (float dt)
+{
+    juce::ignoreUnused (dt);
+    auto visible = [this] (int si, int fi) {
+        const auto& s = strands[(size_t) si];
+        if (fi <= 0 || fi >= s.count)
+            return false;
+        const double age = now - s.born;
+        return fibres[(size_t) (s.first + fi)].path <= shownPath (age, s.life, s.growRate, s.reach) && s.witherNow < 0.3f;
+    };
+
+    // tear the ones stretched too far, grown old, or whose strands are withering or gone
+    for (size_t k = 0; k < synapses.size();)
+    {
+        auto& y = synapses[k];
+        const bool same = strands[(size_t) y.sa].born == y.bornA && strands[(size_t) y.sb].born == y.bornB;
+        bool tear = ! same || ! synapsesOn;
+        if (! tear)
+        {
+            const auto& a = fibres[(size_t) (strands[(size_t) y.sa].first + y.fa)];
+            const auto& b = fibres[(size_t) (strands[(size_t) y.sb].first + y.fb)];
+            const float d = a.p.getDistanceFrom (b.p);
+            y.stretch = (d - y.rest) / std::max (1.0f, y.rest);
+            tear = d > 34.0f + 3.0f * y.rest || now - y.born > (double) y.life || ! visible (y.sa, y.fa) || ! visible (y.sb, y.fb);
+            if (tear && same)
+            {
+                // the snap: both ends recoil away from each other
+                auto& fa = fibres[(size_t) (strands[(size_t) y.sa].first + y.fa)];
+                auto& fb = fibres[(size_t) (strands[(size_t) y.sb].first + y.fb)];
+                const auto dir = (fa.p - fb.p) / std::max (1.0f, d);
+                fa.p += dir * 3.0f;
+                fb.p -= dir * 3.0f;
+                if (snaps.size() < 16)
+                    snaps.push_back ({ (fa.p + fb.p) * 0.5f, now });
+            }
+        }
+        if (tear)
+        {
+            synapses[k] = synapses.back();
+            synapses.pop_back();
+            continue;
+        }
+        y.flash *= std::exp (-dt / 0.35f);
+
+        // impulses cross: when one reaches the junction it carries on into the other strand
+        auto cross = [&] (int from, int fromFibre, int to, int toFibre, double& crossed) {
+            const auto& sf = strands[(size_t) from];
+            auto& st = strands[(size_t) to];
+            const auto& f = fibres[(size_t) (sf.first + fromFibre)];
+            for (const auto& p : sf.pulses)
+            {
+                if (p.t0 < 0.0 || p.t0 <= crossed || p.strength < 0.15f)
+                    continue;
+                const float head = pulseSpeed * (float) (now - p.t0);
+                if (head < f.path || head > f.path + 40.0f)
+                    continue;
+                crossed = p.t0;
+                const float toPath = fibres[(size_t) (st.first + toFibre)].path;
+                auto* slot = &st.pulses[0];
+                for (auto& q : st.pulses)
+                    if (q.t0 < 0.0 || q.strength < slot->strength)
+                        slot = &q;
+                *slot = { now - (double) (toPath / pulseSpeed), 0.75f * p.strength, p.red };
+                y.flash = std::max (y.flash, p.strength);
+            }
+        };
+        cross (y.sa, y.fa, y.sb, y.fb, y.crossedA);
+        cross (y.sb, y.fb, y.sa, y.fa, y.crossedB);
+        ++k;
+    }
+
+    for (size_t k = 0; k < snaps.size();)
+        if (now - snaps[k].when > 0.6)
+        {
+            snaps[k] = snaps.back();
+            snaps.pop_back();
+        }
+        else
+            ++k;
+
+    // look for new touches a few times a second: a strand's growing tip or leaf near another strand
+    if (! synapsesOn || now < nextSynapseCheck || synapses.size() >= 24)
+        return;
+    nextSynapseCheck = now + 0.25;
+    constexpr float touch = 7.0f;
+    for (int sa = 0; sa < (int) strands.size(); ++sa)
+    {
+        const auto& s = strands[(size_t) sa];
+        const double age = now - s.born;
+        const float shown = shownPath (age, s.life, s.growRate, s.reach);
+        for (int fa = 1; fa < s.count; ++fa)
+        {
+            const auto& f = fibres[(size_t) (s.first + fa)];
+            // the ends only: the piece at the growing edge, or a leaf
+            const bool edge = f.path <= shown && f.path + 15.0f > shown;
+            const bool leaf = fa + 1 >= s.count || fibres[(size_t) (s.first + fa + 1)].parent != fa;
+            if (! (edge || (leaf && f.path <= shown)) || s.witherNow > 0.0f)
+                continue;
+            for (int sb = 0; sb < (int) strands.size(); ++sb)
+            {
+                if (sb == sa)
+                    continue;
+                const auto& o = strands[(size_t) sb];
+                const float oShown = shownPath (now - o.born, o.life, o.growRate, o.reach);
+                for (int fb = 1; fb < o.count; ++fb)
+                {
+                    const auto& g = fibres[(size_t) (o.first + fb)];
+                    if (g.path > oShown || std::abs (g.p.x - f.p.x) > touch || std::abs (g.p.y - f.p.y) > touch)
+                        continue;
+                    bool taken = false;
+                    for (const auto& y : synapses)
+                        taken = taken || (y.sa == sa && y.sb == sb) || (y.sa == sb && y.sb == sa);
+                    if (taken)
+                        break;
+                    synapses.push_back ({ sa, fa, sb, fb, s.born, o.born, now, 2.0f, 18.0f + 30.0f * random.nextFloat(), 0.0f, 0.6f });
+                    if (synapses.size() >= 24)
+                        return;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void Field::solveSynapses (float h)
+{
+    // a soft spring that pulls the two ends together; the strands bend and go taut around it
+    const float alpha = alphaTilde (260.0f, h);
+    for (const auto& y : synapses)
+    {
+        auto& a = fibres[(size_t) (strands[(size_t) y.sa].first + y.fa)];
+        auto& b = fibres[(size_t) (strands[(size_t) y.sb].first + y.fb)];
+        solveDistance (a.p, 1.0f, b.p, 1.0f, y.rest, alpha);
+    }
+}
+
+void Field::paintSynapses (juce::Graphics& g)
+{
+    for (const auto& y : synapses)
+    {
+        const auto& a = fibres[(size_t) (strands[(size_t) y.sa].first + y.fa)];
+        const auto& b = fibres[(size_t) (strands[(size_t) y.sb].first + y.fb)];
+        const float age = std::min (1.0f, (float) (now - y.born) / 0.8f);
+        // stretched thinner and brighter: you see the tension
+        const float t = std::clamp (y.stretch / 4.0f, 0.0f, 1.0f);
+        const float bright = (0.25f + 0.45f * t + 0.6f * y.flash) * age;
+        g.setColour (colour::ink.withAlpha (std::min (0.95f, bright)));
+        g.drawLine ({ a.p, b.p }, 1.3f * (1.0f - 0.6f * t) + 0.6f * y.flash);
+        g.setOpacity (std::min (1.0f, 0.25f * age + 0.6f * y.flash));
+        const auto mid = (a.p + b.p) * 0.5f;
+        g.drawImage (glowWhite, juce::Rectangle<float> (10.0f + 8.0f * y.flash, 10.0f + 8.0f * y.flash).withCentre (mid));
+        g.setOpacity (1.0f);
+        g.setColour (colour::ink.withAlpha (0.5f * age + 0.4f * y.flash));
+        g.fillEllipse (juce::Rectangle<float> (2.4f, 2.4f).withCentre (mid));
+    }
+    for (const auto& sn : snaps)
+    {
+        const float k = (float) (now - sn.when) / 0.6f;
+        g.setColour (colour::ink.withAlpha (0.5f * (1.0f - k)));
+        g.drawEllipse (juce::Rectangle<float> (4.0f + 18.0f * k, 4.0f + 18.0f * k).withCentre (sn.at), 0.8f);
+    }
+}
+
 void Field::paintTissue (juce::Graphics& g)
 {
     const auto lp = light();
@@ -501,6 +666,8 @@ void Field::paintTissue (juce::Graphics& g)
             g.strokePath (paths[k], juce::PathStrokeType (widths[k] * (1.0f - 0.45f * wither), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
     }
+
+    paintSynapses (g);
 
     // growth cones: the tips still creeping out
     g.setColour (colour::ink.withAlpha (0.22f));
@@ -1033,6 +1200,8 @@ void Field::simulate (float dt)
                 solveAnchor (f.p, f.rest, shapeTissue * (1.0f / ((1.0f - 0.92f * loose) * (1.0f - 0.92f * loose) * slack)));
             }
 
+        solveSynapses (h);
+
         // the growth
         for (auto& j : joints)
         {
@@ -1251,6 +1420,7 @@ void Field::tick (double t)
     growHeads (t);
     simulate (dt);
     tickSparks (t, dt);
+    tickSynapses (dt);
 
     const float target = dragging || hovering ? 1.0f : 0.0f;
     labelAlpha += (target - labelAlpha) * 0.12f;

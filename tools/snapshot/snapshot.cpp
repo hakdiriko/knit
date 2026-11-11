@@ -5,6 +5,7 @@
 //   DENDRITE_THROW_LEN=0.6             how long the throw is held, in seconds
 //   DENDRITE_TOUCH=x,y                 where the throw touches the field (0..1), for the picture
 //   DENDRITE_DRAG=t0                   from t0 seconds on, the light is dragged around a loop
+//   DENDRITE_SYNAPSES=0                strands never join (for with/without clips)
 //   DENDRITE_FRAMES=dir                also write frames at 30 fps (frame_00000.png ...)
 //   DENDRITE_FRAMES_FROM=t             ... starting at t seconds
 //   DENDRITE_AUDIO=out.wav             also write what came out of the plug-in
@@ -68,6 +69,8 @@ int main (int argc, char** argv)
 
     std::unique_ptr<juce::AudioProcessorEditor> base (processor.createEditor());
     auto* editor = dynamic_cast<DendriteEditor*> (base.get());
+    if (env ("DENDRITE_SYNAPSES") == "0")
+        editor->getField().setSynapses (false);
     editor->setSize ((int) (DendriteEditor::designWidth * scale), (int) (DendriteEditor::designHeight * scale));
 
     std::unique_ptr<juce::AudioFormatWriter> audioOut;
