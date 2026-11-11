@@ -8,7 +8,7 @@ namespace
     constexpr float leftMargin = 46.0f, rightMargin = 46.0f, topMargin = 40.0f, bottomMargin = 40.0f + stripHeight;
     constexpr int jointBudget = 1100; // where pruning gets strict; the pool has room above it
     constexpr size_t maxJoints = 2400, maxDue = 1600, maxSparks = 48, maxTrees = 96;
-    constexpr int strandCount = 28, fibresPerStrand = 60;
+    constexpr int strandCount = 40, fibresPerStrand = 60;
     constexpr float grabRadius = 30.0f;
     constexpr int substeps = 6;
     constexpr float maxSpeed = 2500.0f; // px/s: a guard, never reached in normal use
@@ -70,15 +70,25 @@ namespace
         return s > maxSpeed ? v * (maxSpeed / s) : v;
     }
 
-    // how far a strand has grown in (or pulled back), in fibre orders
-    float grownOrder (double age, float life, float growIn, int maxOrder)
+    // A strand's life: its tips creep out from the root a few px a second, it stays a while,
+    // then it withers (goes slack and curls in) and pulls back to its root.
+    constexpr float witherTime = 6.0f, retractTime = 8.0f;
+
+    // how far along the strand (px from the root) it is there now
+    float shownPath (double age, float life, float growRate, float reach)
     {
         const float a = (float) age;
-        float grown = std::min (1.0f, a / growIn) * (float) maxOrder;
+        float shown = growRate * a;
         const float left = life - a;
-        if (left < 7.0f)
-            grown = std::min (grown, (float) maxOrder * std::max (0.0f, left / 7.0f));
-        return grown;
+        if (left < retractTime)
+            shown = std::min (shown, (reach + 1.0f) * std::max (0.0f, left / retractTime));
+        return shown;
+    }
+
+    // 0 while alive, rising to 1 as it withers, before and while it pulls back
+    float witherOf (double age, float life)
+    {
+        return std::clamp (((float) age - (life - retractTime - witherTime)) / witherTime, 0.0f, 1.0f);
     }
 } // namespace
 
@@ -203,12 +213,20 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
     s.count = 1;
     stack[top++] = { start, angle, 0, 0, 10 + random.nextInt (22), 0 };
     const float wander = 0.18f + 0.3f * random.nextFloat();
+    // somewhere it is growing towards, so its growth has a direction you can follow
+    const juce::Point<float> aim { b.getX() + random.nextFloat() * b.getWidth(), b.getY() + random.nextFloat() * b.getHeight() };
     while (top > 0 && s.count < fibresPerStrand)
     {
         auto arm = stack[--top];
         for (int k = 0; k < arm.steps && s.count < fibresPerStrand; ++k)
         {
             arm.angle += gauss() * wander;
+            {
+                const auto to = aim - arm.p;
+                float diff = std::atan2 (to.y, to.x) - arm.angle;
+                diff = std::remainder (diff, juce::MathConstants<float>::twoPi);
+                arm.angle += 0.05f * diff;
+            }
             const float len = (6.0f + 9.0f * random.nextFloat()) * std::pow (0.86f, (float) arm.depth);
             const auto q = arm.p + juce::Point<float> (std::cos (arm.angle), std::sin (arm.angle)) * len;
             const int me = s.count++;
@@ -228,8 +246,8 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
     s.swayAmp = (0.08f + 0.14f * random.nextFloat()) * (random.nextBool() ? 1.0f : -1.0f);
     s.swayRate = juce::MathConstants<float>::twoPi / (22.0f + 24.0f * random.nextFloat());
     s.swayPhase = random.nextFloat() * juce::MathConstants<float>::twoPi;
-    s.life = 30.0f + 50.0f * random.nextFloat();
-    s.growIn = 5.0f + 9.0f * random.nextFloat();
+    s.growRate = 3.0f + 3.0f * random.nextFloat();
+    s.life = s.reach / s.growRate + 25.0f + 45.0f * random.nextFloat() + witherTime + retractTime;
     s.brightness = random.nextFloat() < 0.1f ? 0.34f : 0.08f + 0.17f * random.nextFloat();
     s.born = midLife ? t - (double) (random.nextFloat() * s.life * 0.85f) : t;
 }
@@ -249,9 +267,9 @@ void Field::tickSparks (double t, float dt)
         nextSpark = t - std::log (std::max (1.0e-4f, random.nextFloat())) / rate;
         const int si = random.nextInt (strandCount);
         const auto& s = strands[(size_t) si];
-        const float grown = grownOrder (t - s.born, s.life, s.growIn, s.maxOrder);
+        const float shown = shownPath (t - s.born, s.life, s.growRate, s.reach);
         const int fi = s.count > 1 ? 1 + random.nextInt (s.count - 1) : 0;
-        if (fi > 0 && (float) fibres[(size_t) (s.first + fi)].order <= grown)
+        if (fi > 0 && fibres[(size_t) (s.first + fi)].path <= shown)
             sparks.push_back ({ si, fi, 0.0f, 40.0f + 110.0f * random.nextFloat(), 0.4f + 0.6f * random.nextFloat(), itchLit > 0.1f });
     }
 
@@ -394,13 +412,16 @@ void Field::paintTissue (juce::Graphics& g)
     juce::Path paths[3];
     lit.clearQuick();
     pulseHeads.clear();
+    growthTips.clear();
     for (const auto& s : strands)
     {
         const double age = now - s.born;
         if (age < 0.0 || s.count < 2)
             continue;
-        const float grown = grownOrder (age, s.life, s.growIn, s.maxOrder);
-        const float alpha = (s.brightness * (1.0f + 1.2f * bodyRel) + 0.35f * s.shiver) * std::min (1.0f, (float) age / 3.0f) * breathe;
+        const float shown = shownPath (age, s.life, s.growRate, s.reach);
+        const float wither = witherOf (age, s.life);
+        const float alpha = (s.brightness * (1.0f + 1.2f * bodyRel) + 0.35f * s.shiver) * std::min (1.0f, (float) age / 3.0f) * breathe
+                            * (1.0f - 0.55f * witherOf (age, s.life));
         if (alpha < 0.005f)
             continue;
         for (auto& p : paths)
@@ -409,13 +430,18 @@ void Field::paintTissue (juce::Graphics& g)
         for (int i = 1; i < s.count; ++i)
         {
             const auto& f = fibres[(size_t) (s.first + i)];
-            const float o = (float) f.order;
-            if (o - 1.0f > grown)
+            const float from = f.path - f.length;
+            if (from >= shown)
                 continue;
             const auto a = fibres[(size_t) (s.first + f.parent)].p;
             auto e = f.p;
-            if (o > grown)
-                e = a + (e - a) * (grown - (o - 1.0f));
+            if (f.path > shown)
+            {
+                // a growing tip: the piece reaches only part way, with a faint growth cone on its end
+                e = a + (e - a) * ((shown - from) / std::max (0.5f, f.length));
+                if (wither <= 0.0f && growthTips.size() < 64)
+                    growthTips.push_back (e);
+            }
             auto& path = paths[std::min<int> (2, f.depth)];
             path.startNewSubPath (a);
             path.lineTo (e);
@@ -438,7 +464,7 @@ void Field::paintTissue (juce::Graphics& g)
             for (int i = 1; i < s.count && lit.size() < maxLit; ++i)
             {
                 const auto& f = fibres[(size_t) (s.first + i)];
-                if ((float) f.order - 1.0f > grown)
+                if (f.path - f.length >= shown)
                     continue;
                 float b = 0.0f;
                 bool red = false;
@@ -472,9 +498,14 @@ void Field::paintTissue (juce::Graphics& g)
             if (paths[k].isEmpty())
                 continue;
             g.setColour (colour::tissue.withAlpha (alpha * (k == 0 ? 1.0f : (k == 1 ? 0.8f : 0.6f))));
-            g.strokePath (paths[k], juce::PathStrokeType (widths[k], juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            g.strokePath (paths[k], juce::PathStrokeType (widths[k] * (1.0f - 0.45f * wither), juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
     }
+
+    // growth cones: the tips still creeping out
+    g.setColour (colour::ink.withAlpha (0.22f));
+    for (const auto& p : growthTips)
+        g.fillEllipse (juce::Rectangle<float> (2.2f, 2.2f).withCentre (p));
 
     for (const auto& l : lit)
     {
@@ -934,6 +965,7 @@ void Field::simulate (float dt)
     {
         if (s.count < 2 || s.reach < 1.0f)
             continue;
+        s.witherNow = witherOf (now - s.born, s.life);
         const float tt = (float) now;
         const float theta = s.swayAmp * (std::sin (s.swayRate * tt + s.swayPhase) + 0.4f * std::sin (0.43f * s.swayRate * tt + 2.0f * s.swayPhase));
         const auto root = fibres[(size_t) s.first].restBase;
@@ -993,10 +1025,12 @@ void Field::simulate (float dt)
                 if (parent.parent >= 0)
                 {
                     auto& grand = fibres[(size_t) (s.first + parent.parent)];
-                    solveDistance (grand.p, grand.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.bendRest, bendTissue);
+                    // withering, the bends shorten: the strand curls in on itself
+                    solveDistance (grand.p, grand.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.bendRest * (1.0f - 0.4f * s.witherNow), bendTissue);
                 }
                 const float loose = std::min (1.0f, f.path / std::max (1.0f, s.reach));
-                solveAnchor (f.p, f.rest, shapeTissue * (1.0f / ((1.0f - 0.92f * loose) * (1.0f - 0.92f * loose))));
+                const float slack = 1.0f - 0.9f * s.witherNow; // a withering strand forgets its shape
+                solveAnchor (f.p, f.rest, shapeTissue * (1.0f / ((1.0f - 0.92f * loose) * (1.0f - 0.92f * loose) * slack)));
             }
 
         // the growth

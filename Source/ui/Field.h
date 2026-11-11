@@ -99,13 +99,14 @@ private:
     {
         int first = 0, count = 0, maxOrder = 1;
         double born = 0.0;
-        float life = 40.0f, growIn = 8.0f, brightness = 0.2f;
+        float life = 40.0f, growRate = 3.0f, brightness = 0.2f; // growRate: how fast its tips creep out (px/s)
         float shiver = 0.0f; // a flash of light as a hit's wave passes through it
         // impulses: a hit's wave enters the strand at its root and runs out to every tip
         struct Pulse { double t0 = -1.0; float strength = 0.0f; bool red = false; };
         std::array<Pulse, 3> pulses {};
         uint32_t lastWave = 0;
         float reach = 0.0f; // the longest path from root to tip (px)
+        float witherNow = 0.0f; // 0..1 as it withers at the end of its life
         float swayAmp = 0.15f, swayRate = 0.2f, swayPhase = 0.0f; // its own slow sway (rad, rad/s)
     };
     struct Fibre
@@ -191,6 +192,7 @@ private:
     juce::Array<LitFibre> lit;
     struct PulseHead { juce::Point<float> at; float level = 0.0f; bool red = false; };
     std::vector<PulseHead> pulseHeads;
+    std::vector<juce::Point<float>> growthTips;
     double nextSpark = 0.0;
 
     // the itch heads' own growth
