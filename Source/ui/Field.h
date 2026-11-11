@@ -29,7 +29,7 @@
 
 namespace dendrite::ui
 {
-class Field : public juce::Component
+class Field : public juce::Component, public juce::TooltipClient
 {
 public:
     explicit Field (DendriteProcessor&);
@@ -46,10 +46,12 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    juce::String getTooltip() override;
 
     // For the snapshot tool: move the light or touch the field without a mouse.
     void simulateTouch (juce::Point<float> unit, bool down);
     void simulateMove (juce::Point<float> unit);
+    void simulateHover (juce::Point<float> unit);
     // For the snapshot tool's with/without comparison: let strands join (synapses) or not.
     void setSynapses (bool on) { synapsesOn = on; }
 
@@ -214,6 +216,15 @@ private:
     std::vector<Snap> snaps;
     double nextSynapseCheck = 0.0;
     bool synapsesOn = true;
+
+    // hints: the two words at the edges while the mouse is over the field, a faint nerve from
+    // the pointer while it rests in the dark, and a short wait before a press throws (a click
+    // to focus the window is not a throw)
+    bool hoverDark = false, pendingThrow = false;
+    juce::Point<float> hoverAt;
+    double pressAt = 0.0;
+    float hoverDarkGlow = 0.0f, hintAlpha = 0.0f;
+    static inline int dragsThisSession = 0;
     double nextSpark = 0.0;
 
     // the itch heads' own growth

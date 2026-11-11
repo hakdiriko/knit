@@ -22,11 +22,12 @@ ItchStrip::ItchStrip (DendriteProcessor& p)
       link (*p.params.getParameter ("frames"), [this] (float v) { choice = juce::roundToInt (v); })
 {
     link.sendInitialUpdate();
-    ledOff.source = load (BinaryData::ledoff_png, BinaryData::ledoff_pngSize);
-    ledOn.source = load (BinaryData::ledon_png, BinaryData::ledon_pngSize);
+    // one image each, kept rescaled separately for the bead's size and the lamps' size
+    beadOff.source = lampOff.source = load (BinaryData::ledoff_png, BinaryData::ledoff_pngSize);
+    beadOn.source = lampOn.source = load (BinaryData::ledon_png, BinaryData::ledon_pngSize);
 }
 
-void ItchStrip::Sprite::draw (juce::Graphics& g, juce::Point<float> centre, float size, float opacity)
+void ItchStrip::Sprite::draw (juce::Graphics& g, juce::Point<float> centre, float size, float opacity, float grow)
 {
     if (opacity <= 0.003f || ! source.isValid())
         return;
@@ -35,9 +36,17 @@ void ItchStrip::Sprite::draw (juce::Graphics& g, juce::Point<float> centre, floa
     if (scaled.getWidth() != side)
         scaled = source.rescaled (side, side, juce::Graphics::highResamplingQuality);
     // snap to whole screen pixels so the copy stays sharp
-    const float x = std::round ((centre.x - 0.5f * size) * px) / px, y = std::round ((centre.y - 0.5f * size) * px) / px;
     g.setOpacity (std::min (1.0f, opacity));
-    g.drawImageTransformed (scaled, juce::AffineTransform::scale (1.0f / px).translated (x, y));
+    if (std::abs (grow - 1.0f) < 1.0e-3f)
+    {
+        const float x = std::round ((centre.x - 0.5f * size) * px) / px, y = std::round ((centre.y - 0.5f * size) * px) / px;
+        g.drawImageTransformed (scaled, juce::AffineTransform::scale (1.0f / px).translated (x, y));
+    }
+    else
+    {
+        const float s = grow / px, half = 0.5f * size * grow;
+        g.drawImageTransformed (scaled, juce::AffineTransform::scale (s).translated (centre.x - half, centre.y - half));
+    }
     g.setOpacity (1.0f);
 }
 
@@ -82,7 +91,7 @@ void ItchStrip::paint (juce::Graphics& g)
     g.drawText ("dendrite", juce::Rectangle<float> (30.0f, y - 14.0f, 150.0f, 26.0f), juce::Justification::centredLeft);
 
     g.setColour (colour::redText.withAlpha (0.85f)); // the itch's things are the red ones
-    g.setFont (fonts->make (fonts->regular, 12.5f, 0.08f));
+    g.setFont (fonts->small (*this, fonts->regular, 12.5f, 0.08f));
     g.drawText ("itch", juce::Rectangle<float> (dotsLeft - 44.0f, y - 9.0f, 40.0f, 18.0f), juce::Justification::centredLeft);
 
     // the frame it listens through fills along the line, warmer as the music repeats
@@ -103,12 +112,14 @@ void ItchStrip::paint (juce::Graphics& g)
         if (chosen)
         {
             // a red LED on the line: lit while the itch listens, dark when it is off
-            (k == 0 ? ledOff : ledOn).draw (g, p, beadSize, k == 0 ? 1.0f : 0.85f);
+            // ... and warms as the music repeats and the itch gets closer to firing
+            const float warm = juce::jlimit (0.0f, 1.0f, (repetition - 0.2f) / 0.7f);
+            (k == 0 ? beadOff : beadOn).draw (g, p, beadSize, k == 0 ? 1.0f : 0.6f + 0.4f * warm, 1.0f + 0.25f * warm);
         }
         else
         {
-            g.setColour (colour::red.withAlpha (0.55f));
-            g.fillEllipse (juce::Rectangle<float> (2.4f, 2.4f).withCentre (p));
+            g.setColour (colour::red.withAlpha (0.2f + 0.4f * reveal)); // faint ticks at rest, dots as you reach
+            g.fillEllipse (juce::Rectangle<float> (1.6f + 0.8f * reveal, 1.6f + 0.8f * reveal).withCentre (p));
         }
 
         // the lengths show while you reach for them; otherwise only the chosen one
@@ -116,7 +127,7 @@ void ItchStrip::paint (juce::Graphics& g)
         if (alpha > 0.02f)
         {
             g.setColour ((chosen && k > 0 ? colour::redText : colour::red).withAlpha (alpha));
-            g.setFont (fonts->make (fonts->mono, 11.5f)); // numbers are mono
+            g.setFont (fonts->small (*this, fonts->mono, 11.5f)); // numbers are mono
             g.drawText (juce::String (juce::CharPointer_UTF8 (cellLabels[k])), juce::Rectangle<float> (22.0f, 14.0f).withCentre (p.translated (0.0f, -17.0f)),
                         juce::Justification::centred);
         }
@@ -131,13 +142,13 @@ void ItchStrip::paint (juce::Graphics& g)
             const juce::Point<float> c { headsArea.getX() + cw * ((float) k + 0.5f), y };
             const float lit = lamps[k];
             // a red LED in a dark panel: nearly invisible at rest, lit as its head plays
-            ledOff.draw (g, c, lampSize, 1.0f - lit);
-            ledOn.draw (g, c, lampSize, lit);
-            const float nameAlpha = std::max (lit, 0.5f * reveal);
+            lampOff.draw (g, c, lampSize, 1.0f - lit);
+            lampOn.draw (g, c, lampSize, lit);
+            const float nameAlpha = std::max ({ lit, 0.5f * reveal, 0.25f }); // faint at rest, so you can learn them
             if (nameAlpha > 0.02f)
             {
                 g.setColour (colour::red.interpolatedWith (colour::redText, lit).withAlpha (nameAlpha));
-                g.setFont (fonts->make (fonts->regular, 12.0f, 0.04f));
+                g.setFont (fonts->small (*this, fonts->regular, 12.0f, 0.04f));
                 g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 20.0f)),
                             juce::Justification::centred);
             }

@@ -41,6 +41,7 @@ private:
     Canvas canvas { *this };
     dendrite::ui::Field field;
     dendrite::ui::ItchStrip itch;
+    juce::TooltipWindow tooltips { this, 1800 }; // the hidden moves, told after a short rest
     double started = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteEditor)

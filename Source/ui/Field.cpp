@@ -248,7 +248,7 @@ void Field::seedStrand (Strand& s, double t, bool midLife)
     s.swayPhase = random.nextFloat() * juce::MathConstants<float>::twoPi;
     s.growRate = 3.0f + 3.0f * random.nextFloat();
     s.life = s.reach / s.growRate + 25.0f + 45.0f * random.nextFloat() + witherTime + retractTime;
-    s.brightness = random.nextFloat() < 0.1f ? 0.34f : 0.08f + 0.17f * random.nextFloat();
+    s.brightness = random.nextFloat() < 0.1f ? 0.5f : 0.12f + 0.25f * random.nextFloat(); // readable in a bright room
     s.born = midLife ? t - (double) (random.nextFloat() * s.life * 0.85f) : t;
 }
 
@@ -1139,7 +1139,9 @@ void Field::simulate (float dt)
         for (int i = 1; i < s.count; ++i)
         {
             auto& f = fibres[(size_t) (s.first + i)];
-            const float a = theta * f.path / s.reach;
+            // withering, the remembered shape rolls up from the tip: the strand curls in on itself
+            const float along = f.path / s.reach;
+            const float a = theta * along + s.witherNow * 2.6f * along * along * (s.swayAmp > 0.0f ? 1.0f : -1.0f);
             const float c = std::cos (a), sn = std::sin (a);
             const auto d = f.restBase - root;
             f.rest = root + juce::Point<float> (d.x * c - d.y * sn, d.x * sn + d.y * c);
@@ -1192,8 +1194,7 @@ void Field::simulate (float dt)
                 if (parent.parent >= 0)
                 {
                     auto& grand = fibres[(size_t) (s.first + parent.parent)];
-                    // withering, the bends shorten: the strand curls in on itself
-                    solveDistance (grand.p, grand.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.bendRest * (1.0f - 0.4f * s.witherNow), bendTissue);
+                    solveDistance (grand.p, grand.parent >= 0 ? 1.0f : 0.0f, f.p, 1.0f, f.bendRest, bendTissue);
                 }
                 const float loose = std::min (1.0f, f.path / std::max (1.0f, s.reach));
                 const float slack = 1.0f - 0.9f * s.witherNow; // a withering strand forgets its shape
@@ -1422,8 +1423,16 @@ void Field::tick (double t)
     tickSparks (t, dt);
     tickSynapses (dt);
 
+    if (pendingThrow && t - pressAt >= 0.08)
+    {
+        pendingThrow = false;
+        touching = true;
+        setThrow (true);
+    }
     const float target = dragging || hovering ? 1.0f : 0.0f;
     labelAlpha += (target - labelAlpha) * 0.12f;
+    hoverDarkGlow += ((hoverDark && ! touching && ! pendingThrow ? 1.0f : 0.0f) - hoverDarkGlow) * 0.1f;
+    hintAlpha += ((hovering || hoverDark || dragging ? 1.0f : 0.0f) - hintAlpha) * 0.08f;
     // loudness against the track's own last few seconds (the processor measures it), so a quiet
     // mix lights up like a loud one: the hits flash the light, the held level makes it glow
     const float hitNow = d.hit.exchange (0.0f, std::memory_order_relaxed);
@@ -1464,6 +1473,18 @@ void Field::paint (juce::Graphics& g)
         band (b.withTrimmedLeft (b.getWidth() - edge).withBottom (floor), { b.getRight(), 0.0f }, { b.getRight() - edge, 0.0f });
         g.setColour (colour::black);
         g.fillRect (b.withTop (floor));
+    }
+
+    // resting in the dark, a faint nerve shows where a press would throw from
+    if (hoverDarkGlow > 0.01f)
+    {
+        const auto dv = lp - hoverAt;
+        const auto mid = (hoverAt + lp) * 0.5f + juce::Point<float> (-dv.y, dv.x) * 0.12f;
+        juce::Path nerve;
+        nerve.startNewSubPath (hoverAt);
+        nerve.quadraticTo (mid, lp);
+        g.setColour (colour::ink.withAlpha (0.12f * hoverDarkGlow));
+        g.strokePath (nerve, juce::PathStrokeType (0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
     // a nerve carries the throw from your touch to the light
@@ -1520,6 +1541,18 @@ void Field::paint (juce::Graphics& g)
     g.setColour (colour::ink);
     g.fillEllipse (juce::Rectangle<float> (7.0f + 3.0f * throwGlow, 7.0f + 3.0f * throwGlow).withCentre (lp));
 
+    // what the two directions mean, at the edges, while the mouse is over the field
+    if (hintAlpha > 0.02f)
+    {
+        const float a = hintAlpha * (dragsThisSession < 5 ? 0.42f : 0.2f);
+        g.setColour (colour::inkDim.withAlpha (a));
+        g.setFont (fonts->small (*this, fonts->light, 12.0f, 0.12f));
+        g.drawText ("feed", juce::Rectangle<float> (80.0f, 16.0f).withCentre ({ std::clamp (lp.x, 50.0f, (float) getWidth() - 50.0f), 18.0f }),
+                    juce::Justification::centred);
+        g.drawText ("space", juce::Rectangle<float> (60.0f, 16.0f).withCentre ({ (float) getWidth() - 36.0f, std::clamp (lp.y, 20.0f, (float) getHeight() - stripHeight - 20.0f) }),
+                    juce::Justification::centred);
+    }
+
     // where you are, in two words, only while you touch it
     if (labelAlpha > 0.02f)
     {
@@ -1528,7 +1561,7 @@ void Field::paint (juce::Graphics& g)
         const auto r = inner();
         auto box = juce::Rectangle<float> (180.0f, 18.0f).withCentre (lp.translated (0.0f, lp.y < r.getBottom() - 40.0f ? 30.0f : -30.0f));
         g.setColour (colour::inkDim.withAlpha (0.85f * labelAlpha));
-        g.setFont (fonts->make (fonts->regular, 12.5f, 0.06f));
+        g.setFont (fonts->small (*this, fonts->regular, 12.5f, 0.06f));
         g.drawText (text, box, juce::Justification::centred);
     }
 }
@@ -1555,6 +1588,13 @@ void Field::simulateTouch (juce::Point<float> unit, bool down)
     touch = toScreen (unit);
 }
 
+void Field::simulateHover (juce::Point<float> unit)
+{
+    hoverAt = toScreen (unit);
+    hovering = hoverAt.getDistanceFrom (light()) < grabRadius;
+    hoverDark = ! hovering;
+}
+
 void Field::simulateMove (juce::Point<float> unit)
 {
     setFromUnit (unit);
@@ -1564,12 +1604,23 @@ void Field::mouseMove (const juce::MouseEvent& e)
 {
     const bool near = e.position.getDistanceFrom (light()) < grabRadius;
     hovering = near;
+    hoverDark = ! near && e.position.y < (float) getHeight() - stripHeight;
+    hoverAt = e.position;
     setMouseCursor (near ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::PointingHandCursor);
 }
 
 void Field::mouseExit (const juce::MouseEvent&)
 {
-    hovering = false;
+    hovering = hoverDark = false;
+}
+
+juce::String Field::getTooltip()
+{
+    if (hovering)
+        return juce::String (juce::CharPointer_UTF8 ("drag: up for feed, right for space Â· shift: fine Â· wheel: nudge Â· double-click: home"));
+    if (hoverDark)
+        return "press and hold the dark to throw";
+    return {};
 }
 
 void Field::mouseDown (const juce::MouseEvent& e)
@@ -1581,10 +1632,11 @@ void Field::mouseDown (const juce::MouseEvent& e)
         return;
     if (! near)
     {
-        // touch the tissue anywhere: the nerve fires and the light throws
-        touching = true;
+        // touch the tissue anywhere: the nerve fires and the light throws, once the press has
+        // lasted a moment (tick() fires it), so a click that only focuses the window is not a throw
+        pendingThrow = true;
+        pressAt = now;
         touch = e.position;
-        setThrow (true);
         return;
     }
 
@@ -1596,7 +1648,7 @@ void Field::mouseDown (const juce::MouseEvent& e)
 
 void Field::mouseDrag (const juce::MouseEvent& e)
 {
-    if (touching)
+    if (touching || pendingThrow)
     {
         touch = e.position;
         return;
@@ -1615,11 +1667,12 @@ void Field::mouseUp (const juce::MouseEvent&)
 {
     if (touching)
         setThrow (false);
-    touching = false;
+    touching = pendingThrow = false;
     if (grabbedLight)
     {
         feedLink.endGesture();
         spaceLink.endGesture();
+        ++dragsThisSession;
     }
     grabbedLight = dragging = false;
 }

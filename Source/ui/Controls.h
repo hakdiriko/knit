@@ -15,7 +15,7 @@ class ItchStrip : public juce::Component
     struct Sprite
     {
         juce::Image source, scaled;
-        void draw (juce::Graphics&, juce::Point<float> centre, float size, float opacity);
+        void draw (juce::Graphics&, juce::Point<float> centre, float size, float opacity, float grow = 1.0f);
     };
 
 public:
@@ -39,7 +39,7 @@ private:
     DendriteProcessor& processor;
     juce::SharedResourcePointer<Fonts> fonts;
     juce::ParameterAttachment link;
-    Sprite ledOff, ledOn;
+    Sprite beadOff, beadOn, lampOff, lampOn;
     juce::Rectangle<float> headsArea;
     int choice = DendriteProcessor::defaultItch;
     float repetition = 0.0f, progress = 0.0f, reveal = 0.0f;

@@ -31,6 +31,13 @@ struct Fonts
     {
         return juce::Font (juce::FontOptions (face).withHeight (height).withKerningFactor (tracking));
     }
+
+    // Small type that stays readable when the window is scaled down: never under 10 px on screen.
+    juce::Font small (const juce::Component& c, const juce::Typeface::Ptr& face, float height, float tracking = 0.0f) const
+    {
+        const float scale = std::max (0.1f, juce::Component::getApproximateScaleFactorForComponent (&c));
+        return make (face, std::max (height, 10.0f / scale), tracking);
+    }
 };
 
 class LookAndFeel : public juce::LookAndFeel_V4
