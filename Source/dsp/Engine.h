@@ -40,6 +40,9 @@ public:
         std::array<float, Heads::count> lamps {};
         bool itching = false;
         float correlation = 1.0f, inLevel = 0.0f, outLevel = 0.0f;
+        // for the window, 0..1 against the track's own recent peaks: the strongest hit this
+        // block, how loud the input is held, how loud the echo is
+        float hit = 0.0f, body = 0.0f, echoBody = 0.0f;
         double bpm = 120.0;
         bool hostPlaying = false;
     };
@@ -75,7 +78,7 @@ private:
     int64_t quietFor = 1 << 30; // samples since the heads last played
 
     // output chain
-    float limiterEnv = 0.0f, limiterRelease = 0.0f;
+    float limiterEnv = 1.0f, limiterRelease = 0.0f; // limiterEnv: the echo's gain (1 = untouched)
     float corrLR = 0.0f, corrLL = 0.0f, corrRR = 0.0f, inPower = 0.0f, outPower = 0.0f, meterCoef = 0.0f;
     View state;
 };

@@ -53,6 +53,10 @@ public:
         std::atomic<float> repetition { 0.0f }, frameProgress { 0.0f }, boredom { 0.0f };
         std::array<std::atomic<float>, dendrite::Heads::count> lamps {};
         std::atomic<float> correlation { 1.0f }, inLevel { 0.0f }, outLevel { 0.0f }, bpm { 120.0f };
+        // 0..1 against the track's own recent peaks, so a quiet track looks as alive as a loud
+        // one: the strongest hit since the window last took it (read it with exchange (0.0f)),
+        // the input's held level, the echo's level
+        std::atomic<float> hit { 0.0f }, body { 0.0f }, echoBody { 0.0f };
         std::atomic<bool> hostPlaying { false }, itching { false };
 
         // onsets: each one starts a new tree in the window

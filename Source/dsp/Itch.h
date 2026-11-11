@@ -48,7 +48,7 @@ private:
     static constexpr int bands = 6, ringFrames = 512;
     std::array<Biquad, bands> filters {};
     std::array<float, bands> energy {};
-    float envCoef = 0.0f, stepPeak = 0.0f;
+    float envCoef = 0.0f, stepPeak = 0.0f, loudestLong = -120.0f;
     std::array<std::array<float, bands>, ringFrames> ring {};
     int written = 0, quiet = 1 << 20;
     float score = 0.0f;
@@ -113,6 +113,9 @@ public:
 
     bool busy() const noexcept { return clock >= 0.0 && clock < end; }
 
+    // Itch turned off: a running itch fades out within 100 ms.
+    void stop() noexcept;
+
     // Per sample: what the heads play (out), what they write onto the echo's tape
     // (toTape), and how far they turn the echo's space this sample.
     void process (float& outM, float& outS, float& tapeM, float& tapeS, float& turn) noexcept;
@@ -160,6 +163,8 @@ private:
     Biquad airFilter1, airFilter2;
 
     double clock = -1.0, end = 0.0;
+    float fade = 1.0f, fadeStep = 0.0f;
+    bool stopping = false;
     float strength = 0.0f;
     std::array<float, count> lamps {};
     std::array<Window, count> windows {};

@@ -44,6 +44,7 @@ void Listener::reset()
         f.clear();
     energy.fill (0.0f);
     stepPeak = 0.0f;
+    loudestLong = -120.0f;
     written = 0;
     quiet = 1 << 20;
     score = 0.0f;
@@ -71,7 +72,10 @@ void Listener::step (int stepsPerBar) noexcept
     const float loudest = 10.0f * std::log10 (stepPeak + 1e-12f);
     stepPeak = 0.0f;
 
-    if (loudest < -62.0f)
+    // Silence is judged against the track's own recent peaks (40 dB under them, never
+    // under -90 dB), so a quiet track is heard as well as a loud one.
+    loudestLong = std::max (loudest, loudestLong - 40.0f / (float) (8 * stepsPerBar)); // falls 40 dB over 8 bars
+    if (loudest < std::max (-90.0f, loudestLong - 40.0f))
     {
         // A rest inside the loop is not news; a silence longer than two bars is the end.
         quiet = std::min (quiet + 1, 1 << 20);
@@ -185,6 +189,7 @@ void Binaural::process (float x, float azimuth, float near, float& left, float& 
 //==============================================================================
 void Heads::prepare (float sampleRate)
 {
+    fadeStep = 1.0f / (0.1f * sampleRate);
     sr = sampleRate;
     historyM.prepare ((int) (historySeconds * sr));
     capture.assign ((size_t) (captureSeconds * sr) + 8, 0.0f);
@@ -214,6 +219,8 @@ void Heads::reset()
     captureFrom = 0;
     clock = -1.0;
     end = 0.0;
+    fade = 1.0f;
+    stopping = false;
     lamps.fill (0.0f);
     probeL.fill (0.0f);
     probeR.fill (0.0f);
@@ -257,17 +264,32 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
 {
     dice.reseed (seed);
     strength = clamp01 (intensity);
+    fade = 1.0f;
+    stopping = false;
 
-    // Grab the loudest accent of the last bar (the most recent one wins a tie).
+    // Grab one of the strongest accents of the last bar: any within 3 dB of the loudest, so
+    // a drum loop doesn't hand the heads the same kick every time.
+    const auto inBar = [&] (const Onset& o)
+    { return o.at >= 0 && o.at >= now - (int64_t) barSamples && o.at <= now - (int64_t) (0.01f * sr); };
     float best = 0.0f;
-    int64_t from = now - (int64_t) beatSamples;
     for (const auto& o : onsets)
-        if (o.at >= 0 && o.at >= now - (int64_t) barSamples && o.at <= now - (int64_t) (0.01f * sr)
-            && o.strength >= best * 0.98f)
-        {
-            best = o.strength;
-            from = o.at;
-        }
+        if (inBar (o))
+            best = std::max (best, o.strength);
+    int64_t from = now - (int64_t) beatSamples;
+    int candidates = 0;
+    for (const auto& o : onsets)
+        if (inBar (o) && o.strength >= 0.7f * best && best > 0.0f)
+            ++candidates;
+    if (candidates > 0)
+    {
+        int pick = std::min (candidates - 1, (int) (dice.unit() * (float) candidates));
+        for (const auto& o : onsets)
+            if (inBar (o) && o.strength >= 0.7f * best && pick-- == 0)
+            {
+                from = o.at;
+                break;
+            }
+    }
     captureFrom = std::max (now - (int64_t) (historySeconds * sr) + 16, from - (int64_t) (0.004f * sr));
     captureLength = (int) std::clamp (beatSamples * (double) dice.range (0.75f, 1.0f), 0.12 * sr,
                                       (double) capture.size() - 8.0);
@@ -452,6 +474,18 @@ void Heads::process (float& outM, float& outS, float& tapeM, float& tapeS, float
         return;
     }
 
+    if (stopping)
+    {
+        // itch turned off: the heads fade out within 100 ms
+        fade -= fadeStep;
+        if (fade <= 0.0f)
+        {
+            fade = 0.0f;
+            clock = end;
+            lamps.fill (0.0f);
+            return;
+        }
+    }
     const double t = clock;
     clock += 1.0;
     const float level = 0.75f + 0.25f * strength;
@@ -484,6 +518,22 @@ void Heads::process (float& outM, float& outS, float& tapeM, float& tapeS, float
         tapeM += toTape[k] * m;
         tapeS += toTape[k] * s;
     }
+    if (stopping)
+    {
+        outM *= fade;
+        outS *= fade;
+        tapeM *= fade;
+        tapeS *= fade;
+        turn *= fade;
+        for (auto& l : lamps)
+            l *= fade;
+    }
+}
+
+void Heads::stop() noexcept
+{
+    if (busy())
+        stopping = true;
 }
 
 // ---- scream: the accent, rocked back and forth, excites a climbing throat that circles

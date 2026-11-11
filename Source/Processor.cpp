@@ -158,6 +158,11 @@ void DendriteProcessor::publish()
     d.correlation.store (v.correlation, relaxed);
     d.inLevel.store (v.inLevel, relaxed);
     d.outLevel.store (v.outLevel, relaxed);
+    // hit is held at its highest until the window takes it (d.hit.exchange (0.0f))
+    for (float prev = d.hit.load (relaxed); v.hit > prev && ! d.hit.compare_exchange_weak (prev, v.hit, relaxed);)
+        ;
+    d.body.store (v.body, relaxed);
+    d.echoBody.store (v.echoBody, relaxed);
     d.bpm.store ((float) v.bpm, relaxed);
     d.hostPlaying.store (v.hostPlaying, relaxed);
     d.itching.store (v.itching, relaxed);
