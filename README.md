@@ -3,20 +3,19 @@
 **A dub echo that grows around your head.** VST3 (plus AU on macOS), built with JUCE. Put it on a track and play.
 The repository is called `knit`; the plug-in is called **dendrite**, always lowercase (it was called viber until 0.2.0).
 
-**Status: 1.0.** A dotted-eighth dub echo locked to the host tempo. Every repeat steps a little further out from the middle, so the echo grows from inside your head to all around it, while the mono sum stays a clean dub echo. It breathes with your playing, and when a part repeats too long, it gets an itch and three heads answer.
+**Status: in development, not released yet.** A dotted-eighth dub echo locked to the host tempo. Every repeat steps a little further out from the middle, so the echo grows from inside your head to all around it, while the mono sum stays a clean dub echo. It breathes with your playing, and when a part repeats too long it gets an itch: three of five heads (scream, laugh, manipulate, swarm, ghost) answer. It also keeps the last minute, so you can drag an itch straight into Live.
 
 | Control | What you hear |
 |---|---|
 | feed (the field, up) | how long the repeats live: off, whisper, dub, drown, endless |
 | space (the field, right) | where they live: inside, around, envelop, beyond. Mono-safe all the way |
-| throw | hold to throw what's playing into the echo; at feed off it's the only way in |
-| itch | after 1 to 8 bars of the same, scream, laugh and manipulate answer (or off) |
+| throw | press the dark to throw what's playing into the echo; at feed off it's the only way in |
+| itch | after 1 to 8 bars of the same, the heads answer (or off) |
+| keep | after an itch its lamps glow; drag one into Live to get that itch, cut on bar lines |
 
 The one-page manual is [docs/manual/dendrite-manual.pdf](docs/manual/dendrite-manual.pdf), and it comes inside every download.
 
-Built for and tested on:
-- Windows 11 Pro 64-bit (build 26200)
-- Ableton Live 12.4.2
+Made for Windows 11 and Ableton Live 12; macOS builds (VST3 and AU) are made too, but not code-signed.
 
 ## Get a build
 
@@ -52,3 +51,9 @@ Every push builds the plug-in automatically. You never need to compile anything.
 
 See [CLAUDE.md](CLAUDE.md), [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md) and [docs/DSP_PLAYBOOK.md](docs/DSP_PLAYBOOK.md).
 Design decisions are in [DECISIONS.md](DECISIONS.md); changes per version in [CHANGELOG.md](CHANGELOG.md).
+
+## Rights
+
+© 2026 hakdiriko. All rights reserved. The source is public so it can be read and built, but no licence is granted to copy, modify or redistribute it.
+
+The fonts in `Resources/fonts/` (Urbanist and Fragment Mono) are under the SIL Open Font License; JUCE is used under its own licence.
