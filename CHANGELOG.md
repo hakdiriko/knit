@@ -12,6 +12,7 @@
 - **Your hand winds it up.** After a run of throws and fast moves its itches leave more on the tape and their twist of the space heals in about 25 s instead of 50.
 - **It remembers.** Its life (about 5.5 KB: genome, age, mind, clocks, tiredness, habits, 32 loop fingerprints, a diary of its last 64 itches) is saved with the Live set. Reopen the set and it is the same creature. Sets from before 2.0 open with a newborn.
 - The one-page manual now covers the creature, keep and first light (still one page, same voice).
+- Window: maximise and fullscreen now work; the window takes any shape and the field grows to fill it.
 
 ## 1.3.0 (keep, first light)
 
