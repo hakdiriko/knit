@@ -10,6 +10,13 @@
 //                [--time 0|1|2]  (dotted, triplet, half)  [--dry 0|1]
 //                [--probe heads.raw]  (also writes what each itch head played: float32,
 //                                      interleaved left/right per head, for levelling them)
+//                [--repeat N]  (plays the input N times in a row: a loop that goes on)
+//                [--dice]  (1.2's itch: dice by song position, instead of the creature)
+//                [--genome N]  (which creature; the plug-in draws one at random)
+//                [--loop-transport]  (with --repeat: the song position jumps back at each
+//                                     repeat, like Live's loop brace)
+//                [--itch-log itches.csv]  (one row per itch: when, heads, the 14 numbers)
+//                out.wav may be "-" to write nothing
 #include "dsp/Engine.h"
 
 #include <chrono>
@@ -134,7 +141,11 @@ int main (int argc, char** argv)
     bool dry = true;
     double bpm = 120.0;
     bool playing = true;
-    std::string sweep, probe;
+    std::string sweep, probe, itchLog;
+    int repeat = 1;
+    bool dice = false, loopTransport = false;
+    size_t onePass = 0;
+    unsigned long long genome = 1;
     std::vector<std::pair<double, double>> throws;
     for (int i = 3; i < argc; ++i)
     {
@@ -150,6 +161,11 @@ int main (int argc, char** argv)
         else if (k == "--tail") tail = std::stof (next());
         else if (k == "--stopped") playing = false;
         else if (k == "--probe") probe = next();
+        else if (k == "--repeat") repeat = std::max (1, std::stoi (next()));
+        else if (k == "--dice") dice = true;
+        else if (k == "--loop-transport") loopTransport = true;
+        else if (k == "--genome") genome = std::stoull (next());
+        else if (k == "--itch-log") itchLog = next();
         else if (k == "--throw")
         {
             const std::string v = next();
@@ -170,13 +186,34 @@ int main (int argc, char** argv)
         std::fprintf (stderr, "cannot read %s\n", argv[1]);
         return 1;
     }
+    onePass = in.left.size();
+    if (repeat > 1)
+    {
+        const auto l = in.left, r = in.right;
+        for (int k = 1; k < repeat; ++k)
+        {
+            in.left.insert (in.left.end(), l.begin(), l.end());
+            in.right.insert (in.right.end(), r.begin(), r.end());
+        }
+    }
     const size_t extra = (size_t) (tail * (float) in.sampleRate);
     in.left.resize (in.left.size() + extra, 0.0f);
     in.right.resize (in.right.size() + extra, 0.0f);
 
-    dendrite::Engine engine;
+    static dendrite::Engine engine; // large: keep it off the stack
+    engine.creature().beBorn (genome);
+    engine.useDice (dice);
     engine.setControls (feed, space, false, itch, false);
     engine.prepare ((float) in.sampleRate);
+    std::FILE* log = itchLog.empty() ? nullptr : std::fopen (itchLog.c_str(), "w");
+    if (log)
+    {
+        std::fprintf (log, "seconds,ppq,h1,h2,h3,intensity,boredom,threshold,familiarity,arousal,brightness,density");
+        for (int d = 0; d < dendrite::Gesture::dims; ++d)
+            std::fprintf (log, ",u%d", d);
+        std::fprintf (log, "\n");
+    }
+    int logged = 0;
 
     Audio out = in;
     const int block = probe.empty() ? 256 : 1;
@@ -204,7 +241,7 @@ int main (int argc, char** argv)
         if (sweep == "space") s = sweepFrom + (sweepTo - sweepFrom) * progress;
         engine.setControls (f, s, held, seconds >= itchOff ? 0 : itch, false);
         engine.setStyle (timing, dry);
-        time.ppq = seconds * bpm / 60.0;
+        time.ppq = (loopTransport && pos < onePass * (size_t) repeat ? (double) (pos % onePass) / in.sampleRate : seconds) * bpm / 60.0;
         engine.process (out.left.data() + pos, out.right.data() + pos, n, time);
         if (engine.view().itching && ! itching)
         {
@@ -212,6 +249,17 @@ int main (int argc, char** argv)
             itchTimes += " " + std::to_string ((int) (seconds * 10.0 + 0.5) / 10) + "." + std::to_string ((int) (seconds * 10.0 + 0.5) % 10);
         }
         itching = engine.view().itching;
+        const auto& rec = engine.lastItch();
+        if (log && rec.count > logged)
+        {
+            logged = rec.count;
+            std::fprintf (log, "%.3f,%.3f,%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f", seconds, rec.ppq, rec.gesture.order[0],
+                          rec.gesture.order[1], rec.gesture.order[2], rec.intensity, rec.boredom, rec.threshold,
+                          rec.familiarity, rec.arousal, rec.brightness, rec.density);
+            for (float v : rec.gesture.u)
+                std::fprintf (log, ",%.4f", v);
+            std::fprintf (log, "\n");
+        }
         if (probeFile)
         {
             const auto& heads = engine.itchHeads();
@@ -226,5 +274,9 @@ int main (int argc, char** argv)
     std::fprintf (stderr, "itches: %d (at%s s)\n", itches, itchTimes.c_str());
     std::fprintf (stderr, "rendered %.1f s in %.2f s (%.0fx real time)\n", (double) total / in.sampleRate, elapsed,
                   (double) total / in.sampleRate / elapsed);
+    if (log)
+        std::fclose (log);
+    if (std::string (argv[2]) == "-")
+        return 0;
     return writeWav (argv[2], out) ? 0 : 1;
 }

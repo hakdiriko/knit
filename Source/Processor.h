@@ -81,5 +81,21 @@ private:
     dendrite::Engine engine;
     dendrite::HostTime hostTime;
 
+    // The creature's life crosses threads here. The audio thread seals a copy into the vault
+    // once per bar and after every itch (a seqlock: a reader that raced a write tries again);
+    // a life loaded from a set waits in `arriving` until the next block adopts it.
+    void keepLife() noexcept;                 // audio thread
+    dendrite::Creature::Life readLife() const; // message thread
+    struct Vault
+    {
+        std::atomic<uint32_t> seq { 0 };
+        dendrite::Creature::Life life;
+    };
+    mutable Vault vault;
+    dendrite::Creature::Life arriving;
+    std::atomic<int> arrivingState { 0 }; // 0 nothing, 1 being written, 2 ready, 3 being adopted
+    uint64_t keptAge = 0;
+    uint32_t keptItches = 0;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteProcessor)
 };

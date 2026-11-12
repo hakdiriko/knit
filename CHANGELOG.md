@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.0 (2.0a: the creature)
+
+**The itch has a mind of its own.** Every dendrite is born a small creature (32 neurons) that lives inside the itch from the moment it loads. It takes one breath per sixteenth note, hears the music, feels your hand and breathes on three slow clocks of its own. The echo, the breathing and the throw are unchanged.
+
+- **Never the same twice.** Loop the same bars and every pass itches differently. 1.2 rolled dice by song position, so the same bar gave the same itch; over two hours of one loop 1.2 repeated 97.5% of its itches exactly, the creature 0%.
+- **One animal.** An itch has one temperament: its three heads share a register, a pace and a side. Consecutive itches are related, the way one person's gestures are, and it tires of turning the same way three times running.
+- **Tied to the music.** Bright music itches higher, busy music quicker, a dark sparse part low and slow. It grabs the hit that matches its mood: a dark mood takes the kick, a bright one the hat. Heavy low end leans to manipulate, dense highs to swarm, sparse stabs to ghost and laugh.
+- **Tired heads rest.** A head it used a lot sits out for a while, and it takes the freshest of its last two bars of thoughts against its diary.
+- **It decides when.** Its own patience, how well it knows the loop (a loop it has scratched three times bores it sooner) and how wound up your throws and moves made it set how much repetition it takes; 1.2 always waited for 0.72.
+- **Your hand winds it up.** After a run of throws and fast moves its itches leave more on the tape and their twist of the space heals in about 25 s instead of 50.
+- **It remembers.** Its life (about 5.5 KB: genome, age, mind, clocks, tiredness, habits, 32 loop fingerprints, a diary of its last 64 itches) is saved with the Live set. Reopen the set and it is the same creature. Sets from before 2.0 open with a newborn.
+
 ## 1.2.0 (your critique, answered)
 
 **Level: the same dendrite at any track level.** Nothing is normalised: a quiet track gets a quiet echo, a loud one a loud echo.

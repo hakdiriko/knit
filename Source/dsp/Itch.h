@@ -26,7 +26,7 @@
 // land twice the same way.
 #pragma once
 
-#include "Tools.h"
+#include "Creature.h"
 
 namespace dendrite
 {
@@ -43,6 +43,7 @@ public:
     void step (int stepsPerBar) noexcept;    // every sixteenth note
     float repetition() const noexcept { return score; }
     int silentSteps() const noexcept { return quiet; } // sixteenths since anything sounded
+    const std::array<float, 6>& lastBands() const noexcept { return last; } // dB, the last sixteenth
 
 private:
     static constexpr int bands = 6, ringFrames = 512;
@@ -50,6 +51,7 @@ private:
     std::array<float, bands> energy {};
     float envCoef = 0.0f, stepPeak = 0.0f, loudestLong = -120.0f;
     std::array<std::array<float, bands>, ringFrames> ring {};
+    std::array<float, bands> last {};
     int written = 0, quiet = 1 << 20;
     float score = 0.0f;
 };
@@ -108,8 +110,10 @@ public:
     // is an onset (0..1).
     void listen (float m, float s, float onset) noexcept;
 
-    // Itch now. gap: samples between the heads. beat: samples per quarter note.
-    void fire (float intensity, uint64_t seed, double gapSamples, double beatSamples, double barSamples) noexcept;
+    // Itch now, as the gesture says (the creature's, or 1.2's dice). gap: samples between
+    // the heads. beat: samples per quarter note.
+    void fire (const Gesture& gesture, float intensity, double gapSamples, double beatSamples, double barSamples) noexcept;
+    int lastSetMask() const noexcept { return lastSet; }
 
     bool busy() const noexcept { return clock >= 0.0 && clock < end; }
 
@@ -149,7 +153,10 @@ private:
 
     // the recent past, and the onsets heard in it
     Ring historyM;
-    struct Onset { int64_t at = -1; float strength = 0.0f; };
+    // strength: the peak over 30 ms; bright: how much of that peak is above 2.5 kHz
+    struct Onset { int64_t at = -1; float strength = 0.0f, bright = 0.0f; };
+    Biquad brightFilter;
+    float tapeScale = 1.0f;
     std::array<Onset, 32> onsets {};
     size_t onsetHead = 0;
     float lastOnset = 0.0f;

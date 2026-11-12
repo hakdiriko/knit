@@ -9,7 +9,7 @@ Read before working:
 
 Layout:
 - `Source/`: `Processor` (parameters, host time, state) and `Editor` (the window).
-  - `Source/dsp/`: `Echo` (the mid/side dub echo: tape, breathing, throw, space), `Itch` (the listener and the three heads), `Engine` (clock, itch frames, dry/wet, safety limiter), `Tools.h` (primitives).
+  - `Source/dsp/`: `Echo` (the mid/side dub echo: tape, breathing, throw, space), `Itch` (the listener and the five heads), `Creature` (the itch's own mind: 32 neurons, memory, saved with the set; plan in `docs/CREATURE.md`), `Engine` (clock, itch frames, dry/wet, safety limiter), `Tools.h` (primitives).
   - `Source/ui/`: `Theme` (colours, Urbanist + Fragment Mono fonts, look and feel), `Field` (the XY field and its dendrites), `Controls` (throw pad, itch panel).
 - `Resources/fonts/`: Urbanist (words) and Fragment Mono (numbers), both OFL, embedded as binary data. `Resources/lamps/`: the itch's glass bead and lamps, baked by `tools/blender/lamps.py`.
 - `docs/manual/`: the one-page manual (`dendrite-manual.html` → `dendrite-manual.pdf` via `node docs/manual/render_manual.js`; CI ships the PDF next to the plug-in).

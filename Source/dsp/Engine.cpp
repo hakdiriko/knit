@@ -35,6 +35,7 @@ void Engine::prepare (float sampleRate)
     echo.prepare (sr);
     listener.prepare (sr);
     heads.prepare (sr);
+    mind.rest();
 
     attackFilter.highpass (150.0f, 0.7071f, sr);
     fastUp = coefFor (0.0003f, sr);
@@ -54,6 +55,9 @@ void Engine::reset()
     echo.reset();
     listener.reset();
     heads.reset();
+    mind.rest(); // the creature keeps its life
+    stepOnset = 0.0f;
+    throwStarted = false;
     attackFilter.clear();
     attackFast = attackSlow = attack = 0.0f;
     beat = 0.0;
@@ -73,6 +77,12 @@ void Engine::reset()
 void Engine::setControls (float feed, float space, bool throwHeld, int choice, bool bypassed) noexcept
 {
     echo.setControls (feed, space, throwHeld && ! bypassed);
+    feedNow = feed;
+    spaceNow = space;
+    const bool held = throwHeld && ! bypassed;
+    if (held && ! throwWasHeld)
+        throwStarted = true;
+    throwWasHeld = held;
     const int next = std::clamp (choice, 0, frameChoices - 1);
     if (next == 0 && itchChoice != 0)
     {
@@ -93,6 +103,22 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
         listener.step (stepsPerBar);
         frameSum += listener.repetition();
         ++frameSteps;
+
+        // the creature breathes once per sixteenth
+        Creature::Senses s;
+        s.bandsDb = listener.lastBands();
+        s.sounding = listener.silentSteps() == 0;
+        s.onset = stepOnset;
+        s.repetition = listener.repetition();
+        s.feed = feedNow;
+        s.space = spaceNow;
+        s.throwStarted = throwStarted;
+        s.stepsPerBar = stepsPerBar;
+        s.stepInBar = (int) (((step % stepsPerBar) + stepsPerBar) % stepsPerBar);
+        s.stepSeconds = (float) (0.25 * samplesPerBeat / sr);
+        mind.step (s);
+        stepOnset = 0.0f;
+        throwStarted = false;
     }
 
     const auto frame = (int64_t) std::floor (beat / frameBeats);
@@ -107,16 +133,30 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
         if (counted)
         {
             const float mean = frameSum / (float) frameSteps;
-            if (mean > 0.72f)
+            // the creature decides how much is too much (1.2: always 0.72)
+            const float enough = diceItch ? 0.72f : mind.threshold();
+            if (mean > enough)
             {
                 ++boredFrames;
                 if (itchChoice > 0)
                 {
                     // The longer the loop goes on, the harder it itches.
-                    const float intensity = 0.45f + 0.18f * (float) (boredFrames - 1) + 1.2f * (mean - 0.72f);
+                    const auto gesture = diceItch ? Gesture::dice (mixSeed (frame, itchChoice), heads.lastSetMask())
+                                                  : mind.itch (beat, itchChoice);
+                    const float intensity = 0.45f + 0.18f * (float) (boredFrames - 1) + 1.2f * (mean - enough) + gesture.lift;
                     const double gapBeats = std::clamp (frameBeats / 4.0, 0.5, 2.0);
-                    heads.fire (intensity, mixSeed (frame, itchChoice), gapBeats * samplesPerBeat, samplesPerBeat,
-                                barBeats * samplesPerBeat);
+                    heads.fire (gesture, intensity, gapBeats * samplesPerBeat, samplesPerBeat, barBeats * samplesPerBeat);
+                    echo.setTurnHeal (gesture.heal);
+                    record.count += 1;
+                    record.gesture = gesture;
+                    record.ppq = beat;
+                    record.intensity = intensity;
+                    record.boredom = mean;
+                    record.threshold = enough;
+                    record.familiarity = mind.familiarity();
+                    record.arousal = mind.arousal();
+                    record.brightness = mind.brightness();
+                    record.density = mind.density();
                 }
             }
             else if (mean < 0.5f)
@@ -164,6 +204,7 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         attackSlow = level + (level > attackSlow ? slowUp : slowDown) * (attackSlow - level);
         const float onset = clamp01 ((attackFast / (attackSlow + 1e-6f) - 1.3f) * 1.25f);
         attack = onset + (onset > attack ? attackUp : attackDown) * (attack - onset);
+        stepOnset = std::max (stepOnset, attack);
         heads.listen (mid, side, attack);
 
         float hm = 0.0f, hs = 0.0f, tm = 0.0f, ts = 0.0f, turn = 0.0f;
@@ -219,5 +260,9 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         state.lamps[(size_t) h] = heads.lamp (h);
     state.bpm = bpm;
     state.hostPlaying = time.playing;
+    for (int i = 0; i < Creature::neurons; ++i)
+        state.neurons[(size_t) i] = mind.firing (i);
+    state.arousal = mind.arousal();
+    state.familiarity = mind.familiarity();
 }
 } // namespace dendrite

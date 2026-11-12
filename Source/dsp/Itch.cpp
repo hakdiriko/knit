@@ -65,6 +65,7 @@ void Listener::step (int stepsPerBar) noexcept
     auto& current = ring[(size_t) (written % ringFrames)];
     for (size_t b = 0; b < bands; ++b)
         current[b] = std::max (-80.0f, 10.0f * std::log10 (energy[b] + 1e-12f));
+    last = current;
     ++written;
 
     // Whether anything sounded during this sixteenth (not only at its edge, which a short
@@ -196,6 +197,7 @@ void Heads::prepare (float sampleRate)
     air.assign (capture.size(), 0.0f);
     airFilter1.highpass (1700.0f, 0.7071f, sr);
     airFilter2.highpass (1700.0f, 0.7071f, sr);
+    brightFilter.highpass (2500.0f, 0.7071f, sr);
     flutter.prepare (sr, 0.32f, 0x81);
     rmsCoef = approach (0.03f, sr);
     vowel.bandpass (820.0f, 1.1f, sr);
@@ -232,6 +234,8 @@ void Heads::reset()
     vowel.clear();
     airFilter1.clear();
     airFilter2.clear();
+    brightFilter.clear();
+    tapeScale = 1.0f;
     screamY1 = screamY2 = screamRms = 0.0f;
     haStart = -1.0;
     flutter.reset();
@@ -247,28 +251,38 @@ void Heads::reset()
 void Heads::listen (float m, float, float onset) noexcept
 {
     historyM.push (m);
+    const float high = std::abs (brightFilter.process (m));
     ++now;
     if (onset > 0.5f && lastOnset <= 0.5f)
     {
         onsetHead = (onsetHead + 1) % onsets.size();
-        onsets[onsetHead] = { now, 0.0f };
+        onsets[onsetHead] = { now, 0.0f, 0.0f };
     }
     lastOnset = onset;
-    // the strength of an onset is its peak over the next 30 ms
+    // the strength of an onset is its peak over the next 30 ms, its brightness the share of
+    // that peak above 2.5 kHz
     auto& recent = onsets[onsetHead];
     if (recent.at >= 0 && now - recent.at < (int64_t) (0.03f * sr))
+    {
         recent.strength = std::max (recent.strength, std::abs (m));
+        recent.bright = std::max (recent.bright, high);
+    }
 }
 
-void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beatSamples, double barSamples) noexcept
+void Heads::fire (const Gesture& gesture, float intensity, double gapSamples, double beatSamples, double barSamples) noexcept
 {
-    dice.reseed (seed);
+    const auto& u = gesture.u;
+    dice.reseed (gesture.texture);
     strength = clamp01 (intensity);
     fade = 1.0f;
     stopping = false;
+    tapeScale = std::clamp (gesture.tape, 0.5f, 1.5f);
+    const float side = u[2] < 0.5f ? -1.0f : 1.0f;    // one handedness for the whole itch
+    const float scatter = 0.5f + u[7];                  // how loose its timing is
 
-    // Grab one of the strongest accents of the last bar: any within 3 dB of the loudest, so
-    // a drum loop doesn't hand the heads the same kick every time.
+    // Grab one of the strongest accents of the last bar (any within 3 dB of the loudest, so
+    // a drum loop doesn't hand the heads the same kick every time): the gesture's register
+    // picks among them, from the darkest (the kick) to the brightest (the hat).
     const auto inBar = [&] (const Onset& o)
     { return o.at >= 0 && o.at >= now - (int64_t) barSamples && o.at <= now - (int64_t) (0.01f * sr); };
     float best = 0.0f;
@@ -276,23 +290,19 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
         if (inBar (o))
             best = std::max (best, o.strength);
     int64_t from = now - (int64_t) beatSamples;
+    std::array<const Onset*, 32> strong {};
     int candidates = 0;
     for (const auto& o : onsets)
         if (inBar (o) && o.strength >= 0.7f * best && best > 0.0f)
-            ++candidates;
+            strong[(size_t) candidates++] = &o;
     if (candidates > 0)
     {
-        int pick = std::min (candidates - 1, (int) (dice.unit() * (float) candidates));
-        for (const auto& o : onsets)
-            if (inBar (o) && o.strength >= 0.7f * best && pick-- == 0)
-            {
-                from = o.at;
-                break;
-            }
+        std::sort (strong.begin(), strong.begin() + candidates, [] (const Onset* a, const Onset* b)
+                   { return a->bright / (a->strength + 1e-9f) < b->bright / (b->strength + 1e-9f); });
+        from = strong[(size_t) std::min (candidates - 1, (int) (u[0] * (float) candidates))]->at;
     }
     captureFrom = std::max (now - (int64_t) (historySeconds * sr) + 16, from - (int64_t) (0.004f * sr));
-    captureLength = (int) std::clamp (beatSamples * (double) dice.range (0.75f, 1.0f), 0.12 * sr,
-                                      (double) capture.size() - 8.0);
+    captureLength = (int) std::clamp (beatSamples * (double) (1.0f - 0.25f * u[6]), 0.12 * sr, (double) capture.size() - 8.0);
     copied = 0;
     capturePeak = 1.0e-3f;
     airFilter1.clear();
@@ -301,41 +311,27 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
     const double second = sr;
     const double gap = std::clamp (gapSamples, 0.2 * second, 2.5 * second);
 
-    // Draw three of the five heads, in an order of their own; never the same three twice
-    // running.
-    std::array<int, count> order { 0, 1, 2, 3, 4 };
-    int set = 0;
-    for (int attempt = 0; attempt < 4; ++attempt)
-    {
-        for (int i = count - 1; i > 0; --i)
-            std::swap (order[(size_t) i], order[(size_t) std::min (i, (int) (dice.unit() * (float) (i + 1)))]);
-        set = 0;
-        for (int k = 0; k < perItch; ++k)
-            set |= 1 << order[(size_t) k];
-        if (set != lastSet)
-            break;
-    }
-    lastSet = set;
+    lastSet = gesture.setMask();
     for (auto& w : windows)
         w = {};
 
     end = 0.0;
     for (int slot = 0; slot < perItch; ++slot)
     {
-        const auto head = (Head) order[(size_t) slot];
+        const auto head = (Head) std::clamp (gesture.order[(size_t) slot], 0, count - 1);
         // A tape's heads are fixed; these drift a little, so no two itches line up the same.
-        const double start = (double) (slot + 1) * gap * dice.jitter (0.05f);
+        const double start = (double) (slot + 1) * gap * dice.jitter (0.05f * scatter);
         double length = second;
 
         switch (head)
         {
             case scream:
-                length = std::clamp (1.5 * gap * dice.jitter (0.15f), 0.6 * second, 3.5 * second);
-                screamFrom = 480.0f * std::exp2 (dice.range (0.0f, 0.75f));
-                screamRise = dice.range (0.4f, 0.9f) * (0.6f + 0.4f * strength);
+                length = std::clamp (1.5 * gap * dice.jitter (0.15f * scatter), 0.6 * second, 3.5 * second);
+                screamFrom = 480.0f * std::exp2 (0.75f * u[0]);
+                screamRise = (0.4f + 0.5f * u[5]) * (0.6f + 0.4f * strength);
                 screamFeedback = 0.955f + 0.025f * strength;
-                screamAz = dice.range (-pi, pi);
-                screamTurns = dice.sign() * dice.range (1.0f, 1.8f) * (0.8f + 0.4f * strength);
+                screamAz = -pi + tau * u[4];
+                screamTurns = side * (1.0f + 0.8f * u[3]) * (0.8f + 0.4f * strength);
                 throat1.clear();
                 throat2.clear();
                 screamPlace.clear();
@@ -345,10 +341,10 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
 
             case laugh:
             {
-                haRate = dice.range (4.8f, 6.0f);
-                haSlow = dice.range (0.88f, 0.94f);
-                haDecay = dice.range (0.74f, 0.86f);
-                haSide = dice.sign();
+                haRate = 4.8f + 1.2f * u[1];
+                haSlow = 0.94f - 0.06f * u[6];
+                haDecay = 0.86f - 0.12f * u[6];
+                haSide = -side; // it answers from the other ear
                 haMax = 4 + (int) std::lround (3.0f * strength);
                 haCount = 0;
                 length = 0.12 * second;
@@ -363,9 +359,9 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
             }
 
             case manipulate:
-                manipFloor = 0.62f - 0.25f * strength * dice.range (0.7f, 1.0f);
-                manipTurn = dice.sign() * dice.range (0.6f, 1.2f) * pi;
-                manipAz = dice.range (-0.5f, 0.5f);
+                manipFloor = 0.62f - 0.25f * strength * (0.7f + 0.3f * u[5]);
+                manipTurn = side * (0.6f + 0.6f * u[3]) * pi;
+                manipAz = u[4] - 0.5f;
                 length = std::clamp ((double) captureLength / 0.72, 0.8 * second, 4.0 * second);
                 manipPos = 0.0f;
                 manipPlace.clear();
@@ -374,11 +370,11 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
             case swarm:
             {
                 swarmBase = std::clamp (2.0f * (float) (second / beatSamples), 2.0f, 8.0f); // eighth notes
-                swarmSpread = dice.range (0.12f, 0.2f);
+                swarmSpread = 0.12f + 0.08f * u[7];
                 swarmGrainLength = std::clamp (0.22f / swarmBase, 0.03f, 0.07f);
                 swarmSync = 0.0f;
                 swarmTick = 0;
-                length = std::clamp (2.0 * gap * dice.jitter (0.1f), 1.2 * second, 4.0 * second);
+                length = std::clamp (2.0 * gap * dice.jitter (0.1f * scatter), 1.2 * second, 4.0 * second);
                 for (auto& g : grains)
                 {
                     g.phase = dice.unit();
@@ -392,8 +388,8 @@ void Heads::fire (float intensity, uint64_t seed, double gapSamples, double beat
 
             case ghost:
             {
-                ghostSpeed = dice.range (0.82f, 0.95f);
-                ghostFrom = dice.sign() * dice.range (0.4f, 0.6f) * pi;
+                ghostSpeed = 0.82f + 0.13f * u[1];
+                ghostFrom = side * (0.4f + 0.2f * u[3]) * pi;
                 ghostPos = 0.0f;
                 length = std::min (3.0 * second, (double) captureLength / ghostSpeed + 0.24 * second);
                 // a velvet-noise sequence: one sparse tap per slot, random sign, decaying
@@ -515,8 +511,8 @@ void Heads::process (float& outM, float& outS, float& tapeM, float& tapeS, float
         const float m = 0.5f * (l + r), s = 0.5f * (l - r);
         outM += m;
         outS += s;
-        tapeM += toTape[k] * m;
-        tapeS += toTape[k] * s;
+        tapeM += tapeScale * toTape[k] * m;
+        tapeS += tapeScale * toTape[k] * s;
     }
     if (stopping)
     {

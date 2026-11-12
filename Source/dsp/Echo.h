@@ -44,6 +44,8 @@ public:
 
     // The itch's third head turns the whole space; the turn heals over about a minute.
     void turnSpace (float radians) noexcept { turnTarget += radians; }
+    // how long the turned space takes to heal (time constant, seconds; 1.2: 45)
+    void setTurnHeal (float seconds) noexcept { cTurnHeal = approach (std::clamp (seconds, 10.0f, 120.0f), sampleRate); }
 
     // Per sample. xm/xs: the input as Mid/Side. im/is: extra signal written straight onto
     // the tape (the itch heads). Returns the echo as Mid/Side in wm/ws.

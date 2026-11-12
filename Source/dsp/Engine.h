@@ -4,6 +4,7 @@
 
 #include "Echo.h"
 #include "Itch.h"
+#include "Creature.h"
 
 namespace dendrite
 {
@@ -53,10 +54,31 @@ public:
         float hit = 0.0f, body = 0.0f, echoBody = 0.0f, runaway = 0.0f;
         double bpm = 120.0;
         bool hostPlaying = false;
+        // the creature, for the window: its neurons firing (-1..1), how wound up it is, how
+        // well it knows this loop
+        std::array<float, Creature::neurons> neurons {};
+        float arousal = 0.0f, familiarity = 0.0f;
     };
     const View& view() const noexcept { return state; }
 
     bool takeOnset (float& level, bool& thrown) noexcept { return echo.takeOnset (level, thrown); }
+
+    // The itch's own mind. Its life survives prepare() and reset(); the processor saves it.
+    Creature& creature() noexcept { return mind; }
+    const Creature& creature() const noexcept { return mind; }
+    // For A/B renders only: 1.2's dice itch instead of the creature.
+    void useDice (bool dice) noexcept { diceItch = dice; }
+
+    // The last itch, for the offline tools: how many so far, what it was, how bored the
+    // frame was and the threshold it passed.
+    struct ItchRecord
+    {
+        int count = 0;
+        Gesture gesture;
+        double ppq = 0.0;
+        float intensity = 0.0f, boredom = 0.0f, threshold = 0.72f, familiarity = 0.0f, arousal = 0.0f, brightness = 0.5f, density = 0.0f;
+    };
+    const ItchRecord& lastItch() const noexcept { return record; }
 
     // For the offline tools: what each head played this sample.
     const Heads& itchHeads() const noexcept { return heads; }
@@ -68,6 +90,11 @@ private:
     Echo echo;
     Listener listener;
     Heads heads;
+    Creature mind;
+    bool diceItch = false;
+    ItchRecord record;
+    float feedNow = 0.5f, spaceNow = 0.4f, stepOnset = 0.0f;
+    bool throwWasHeld = false, throwStarted = false;
 
     int itchChoice = defaultFrame;
     float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f, dryTarget = 1.0f, dryNow = 1.0f;
