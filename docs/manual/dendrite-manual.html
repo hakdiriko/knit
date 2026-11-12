@@ -46,8 +46,9 @@
   .lede span { display: block; }
   .lede .soft { color: var(--dim); }
 
-  figure { position: relative; margin-top: 5mm; border: 0.25mm solid var(--rule); }
-  figure img { display: block; width: 100%; }
+  figure { position: relative; margin-top: 5mm; border: 0.25mm solid var(--rule); overflow: hidden; }
+  /* the top sixth of the window is only tissue: crop it so the page keeps its room */
+  figure img { display: block; width: 100%; margin-top: -10.2%; }
   .n {
     position: absolute; transform: translate(-50%, -50%);
     width: 4.6mm; height: 4.6mm; border-radius: 50%;
@@ -89,7 +90,7 @@
 <body>
   <header>
     <h1>dendr<span class="i">ı</span>te</h1>
-    <div class="meta"><span class="m">v1.2</span> &nbsp;·&nbsp; vst3 · au &nbsp;·&nbsp; windows · macos</div>
+    <div class="meta"><span class="m">v2.0</span> &nbsp;·&nbsp; vst3 · au &nbsp;·&nbsp; windows · macos</div>
   </header>
 
   <div class="top">
@@ -110,9 +111,10 @@
 
   <figure>
     <img src="window.png" alt="the dendrite window">
-    <div class="n" style="left: 59.5%; top: 27%">1</div>
-    <div class="n" style="left: 19.6%; top: 51.5%">2</div>
-    <div class="n itch" style="left: 18.6%; top: 93.9%">3</div>
+    <div class="n" style="left: 59.5%; top: 13.1%">1</div>
+    <div class="n" style="left: 19.6%; top: 42.3%">2</div>
+    <div class="n itch" style="left: 18.6%; top: 92.7%">3</div>
+    <div class="n itch" style="left: 66.2%; top: 92.7%">4</div>
   </figure>
 
   <main>
@@ -138,7 +140,8 @@
     <section>
       <h2><i class="itch">3</i>itch</h2>
       <p>how long it can stand the same thing. drag the dots: <b>¼&nbsp;bar to 8&nbsp;bars</b>, or off.</p>
-      <p>when bars start to look alike, it takes the loudest hit. three of five heads answer:</p>
+      <p>inside lives a small animal, 32 neurons. it decides when. never the same twice. it remembers your set.</p>
+      <p>when it has had enough, three of five heads answer:</p>
       <dl class="heads">
         <dt>scream</dt><dd>rises and circles you</dd>
         <dt>laugh</dt><dd>ha ha ha, side to side, falling</dd>
@@ -146,7 +149,7 @@
         <dt>swarm</dt><dd>a dozen grains fall into step</dd>
         <dt>ghost</dt><dd>a whisper behind you</dd>
       </dl>
-      <p>then quiet. on headphones you can point at each one. red is only ever the itch.</p>
+      <p>on headphones you can point at each one. red is only ever the itch.</p>
     </section>
 
 
@@ -159,23 +162,25 @@
       </section>
 
       <section>
-        <h2>beneath</h2>
-        <p>each pass loses top and low mids, gains grit, and wobbles with a wow that never repeats.</p>
-        <p>space only moves the sides, so mono stays a clean dub echo. a scandalous simplification, but true.</p>
+        <h2><i class="itch">4</i>keep</h2>
+        <p>it never forgets the last minute.</p>
+        <p>after an itch the lamps glow like embers. drag one into live: that itch, bar to bar. shift: everything.</p>
+        <p>hover the strip: a tape. pull out any stretch.</p>
+        <p>files: <code>documents/dendrite/kept</code></p>
       </section>
 
       <section>
         <h2>notes</h2>
-        <p>no latency. your track passes untouched.</p>
-        <p>in the strip: <b>time</b> (dotted, triplet, half) and <b>dry</b> (off on a return track).</p>
+        <p>no latency. in the strip: <b>time</b> (dotted, triplet, half) and <b>dry</b> (off on a return track).</p>
         <p>map <b>throw</b> to a key: ctrl+k in live.</p>
         <p>shift-drag: fine. double-click the light: home.</p>
+        <p>the first time, it shows you. click the name to see it again.</p>
       </section>
     </div>
   </main>
 
   <footer>
-    <span>dendrite 1.2 &nbsp;·&nbsp; hakdiriko &nbsp;·&nbsp; 2026</span>
+    <span>dendrite 2.0 &nbsp;·&nbsp; hakdiriko &nbsp;·&nbsp; 2026</span>
     <span>windows <code>C:\Program Files\Common Files\VST3</code> &nbsp;·&nbsp; macos <code>~/Library/Audio/Plug-Ins</code></span>
   </footer>
 </body>
