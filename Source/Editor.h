@@ -43,6 +43,7 @@ private:
     dendrite::ui::LookAndFeel lookAndFeel;
     juce::SharedResourcePointer<dendrite::ui::Fonts> fonts;
     Canvas canvas { *this };
+    int canvasWidth = designWidth, canvasHeight = designHeight; // the window in design units (at least the design)
     dendrite::ui::Field field;
     dendrite::ui::ItchStrip itch;
     dendrite::ui::KeepTape tape;

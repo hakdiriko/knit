@@ -19,10 +19,11 @@ DendriteEditor::DendriteEditor (DendriteProcessor& p)
     itch.setTape (&tape);
     itch.onWordmark = [this] { firstLight.start (juce::Time::getMillisecondCounterHiRes() * 0.001 - started); };
 
+    // any shape, up to a whole 8K screen: a fixed aspect and a 150% cap stopped the host's
+    // maximise/fullscreen from doing anything. The design scales to fit and the field and the
+    // strip stretch to fill the rest, so there are no bars
     setResizable (true, true);
-    setResizeLimits (designWidth * 3 / 4, designHeight * 3 / 4, designWidth * 3 / 2, designHeight * 3 / 2);
-    if (auto* c = getConstrainer())
-        c->setFixedAspectRatio ((double) designWidth / (double) designHeight);
+    setResizeLimits (designWidth * 3 / 4, designHeight * 3 / 4, 7680, 4320);
     setSize (designWidth, designHeight);
 
     started = juce::Time::getMillisecondCounterHiRes() * 0.001;
@@ -42,8 +43,11 @@ void DendriteEditor::paint (juce::Graphics& g)
 
 void DendriteEditor::resized()
 {
-    const float scale = (float) getWidth() / (float) designWidth;
-    canvas.setBounds (0, 0, designWidth, designHeight);
+    // scale so the 880 x 560 design fits, then give the canvas the window's own shape in design units
+    const float scale = std::min ((float) getWidth() / (float) designWidth, (float) getHeight() / (float) designHeight);
+    canvasWidth = std::max (designWidth, juce::roundToInt ((float) getWidth() / scale));
+    canvasHeight = std::max (designHeight, juce::roundToInt ((float) getHeight() / scale));
+    canvas.setBounds (0, 0, canvasWidth, canvasHeight);
     canvas.setTransform (juce::AffineTransform::scale (scale));
     layout();
 }
@@ -51,13 +55,15 @@ void DendriteEditor::resized()
 void DendriteEditor::layout()
 {
     // the field runs under the strip, so the strands (and a throw's nerve) reach the bottom
-    field.setBounds (0, 0, designWidth, designHeight);
-    itch.setBounds (0, fieldHeight, designWidth, designHeight - fieldHeight);
-    itch.setHeadsArea ({ 586.0f, 0.0f, 270.0f, (float) itch.getHeight() });
+    // the strip keeps its height at the bottom; anything the window adds goes to the field
+    const int stripTop = canvasHeight - (designHeight - fieldHeight);
+    field.setBounds (0, 0, canvasWidth, canvasHeight);
+    itch.setBounds (0, stripTop, canvasWidth, designHeight - fieldHeight);
+    itch.setHeadsArea ({ (float) canvasWidth - 294.0f, 0.0f, 270.0f, (float) itch.getHeight() }); // 586 at 880 wide
     // the tape runs along the top of the strip; its ruler opens over the bottom of the field
-    const int tapeTop = fieldHeight - (int) KeepTape::rulerHeight - 6;
-    tape.setBounds (0, tapeTop, designWidth, fieldHeight + 16 - tapeTop);
-    firstLight.setBounds (0, 0, designWidth, designHeight);
+    const int tapeTop = stripTop - (int) KeepTape::rulerHeight - 6;
+    tape.setBounds (0, tapeTop, canvasWidth, stripTop + 16 - tapeTop);
+    firstLight.setBounds (0, 0, canvasWidth, canvasHeight);
 }
 
 void DendriteEditor::timerCallback()

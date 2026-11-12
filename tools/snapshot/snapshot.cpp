@@ -84,6 +84,8 @@ int main (int argc, char** argv)
     if (env ("DENDRITE_SYNAPSES") == "0")
         editor->getField().setSynapses (false);
     editor->setSize ((int) (DendriteEditor::designWidth * scale), (int) (DendriteEditor::designHeight * scale));
+    if (const auto size = env ("DENDRITE_SIZE"); size.isNotEmpty()) // w,h in pixels: any window shape
+        editor->setSize (size.upToFirstOccurrenceOf (",", false, false).getIntValue(), size.fromFirstOccurrenceOf (",", false, false).getIntValue());
 
     std::unique_ptr<juce::AudioFormatWriter> audioOut;
     if (env ("DENDRITE_AUDIO").isNotEmpty())
