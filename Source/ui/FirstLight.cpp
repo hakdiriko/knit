@@ -193,7 +193,8 @@ void FirstLight::tick (double t)
     if (ending)
         g = {};
     strip.setGhost (g);
-    field.ghostLamps (ending ? ItchStrip::Ghost {}.lamps : lamps);
+    const float none[dendrite::Heads::count] {};
+    field.ghostLamps (ending ? none : lamps);
 
     // keep: the tape and the ruler while the ember is held and pulled out
     tape.setGhost (s >= 16.8 && s < 19.6 && ! ending, 1.0f);
