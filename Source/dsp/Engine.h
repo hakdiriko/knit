@@ -80,6 +80,14 @@ public:
     };
     const ItchRecord& lastItch() const noexcept { return record; }
 
+    // keep: what the heads play (the itch alone, after bypass's fade), written per sample into
+    // these, which must hold a whole block. nullptr: not recorded.
+    void setItchTap (float* left, float* right) noexcept
+    {
+        tapLeft = left;
+        tapRight = right;
+    }
+
     // For the offline tools: what each head played this sample.
     const Heads& itchHeads() const noexcept { return heads; }
 
@@ -95,6 +103,9 @@ private:
     ItchRecord record;
     float feedNow = 0.5f, spaceNow = 0.4f, stepOnset = 0.0f;
     bool throwWasHeld = false, throwStarted = false;
+
+    float* tapLeft = nullptr;
+    float* tapRight = nullptr;
 
     int itchChoice = defaultFrame;
     float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f, dryTarget = 1.0f, dryNow = 1.0f;

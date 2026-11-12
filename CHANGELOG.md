@@ -12,6 +12,24 @@
 - **Your hand winds it up.** After a run of throws and fast moves its itches leave more on the tape and their twist of the space heals in about 25 s instead of 50.
 - **It remembers.** Its life (about 5.5 KB: genome, age, mind, clocks, tiredness, habits, 32 loop fingerprints, a diary of its last 64 itches) is saved with the Live set. Reopen the set and it is the same creature. Sets from before 2.0 open with a newborn.
 
+## 1.3.0 (keep, first light)
+
+Nothing here changes a sample of the sound.
+
+**keep: dendrite never forgets the last minute.**
+
+- It always records about a minute: everything it plays, and the itch on its own (the heads, no dry, no echo). Next to that it keeps a diary of every itch (with its heads and length), every throw and every runaway. That diary is also the creature's first memory.
+- **Embers.** After an itch, its three lamps keep a faint glow while keep still holds it, dimming as the minute forgets it. Drag one into Live and you get that itch alone, from the bar line before it to the bar line after its tail. Hold shift to get everything that played over those bars.
+- **The tape.** Move the mouse into the strip and a thin tape appears along its top: a minute ago at the left, now at the right, with bar ticks. Red marks show itches, grey marks show throws and white marks show runaways. Drag a mark out to take it. Press anywhere else on the tape and pull: everything from that bar up to the last full bar.
+- **The ruler.** While you hold a mark, a ruler opens over it with the take's waveform, its bars and beats (1 2 3 4), which heads played, how many bars, and the tempo.
+- **The files** go to Documents/dendrite/kept/ and are never deleted. They are 32-bit float WAVs, a whole number of bars long, with the tempo and metre in the ACID chunk. Each name says what it is: `dendrite itch · scream laugh ghost · 2 bars · 124 bpm · 21-43-07.wav`. Dragging the same itch twice reuses its file.
+- In Live on Windows, dendrite gives Live's window the focus before a drag starts. Live can crash when another window has focus at that moment.
+
+**first light: the window shows itself.**
+
+- The first time dendrite opens on a computer, a ghost hand shows how it works in about 24 silent seconds: it drags the light, presses the dark to throw, lets the itch fire three heads, and pulls an ember out of the window. One deadpan line goes with each step.
+- It never touches your sound or your knobs; it moves a puppet of the light. Any click ends it, and clicking the wordmark plays it again.
+
 ## 1.2.0 (your critique, answered)
 
 **Level: the same dendrite at any track level.** Nothing is normalised: a quiet track gets a quiet echo, a loud one a loud echo.

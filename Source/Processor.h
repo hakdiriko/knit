@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "dsp/Engine.h"
+#include "keep/Keep.h"
 
 class DendriteProcessor : public juce::AudioProcessor
 {
@@ -65,6 +66,9 @@ public:
         juce::AbstractFifo fifo { 64 };
         std::array<Onset, 64> onsets {};
     } display;
+
+    // keep: the last minute, on tape, and a diary of what happened (read by the window)
+    dendrite::keep::Keep keep;
 
 private:
     void run (juce::AudioBuffer<float>&, bool forceBypass);
