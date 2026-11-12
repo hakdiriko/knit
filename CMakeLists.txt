@@ -8,7 +8,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(dendrite VERSION 1.2.0 LANGUAGES C CXX)
+project(dendrite VERSION 1.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,6 +63,9 @@ target_sources(dendrite PRIVATE
     Source/ui/Field.cpp
     Source/ui/Medium.cpp
     Source/ui/Controls.cpp
+    Source/ui/Tape.cpp
+    Source/ui/FirstLight.cpp
+    Source/ui/HostFocus.cpp
     Source/dsp/Echo.cpp
     Source/dsp/Itch.cpp
     Source/dsp/Engine.cpp
@@ -100,6 +103,9 @@ if(DENDRITE_TOOLS)
         Source/ui/Field.cpp
         Source/ui/Medium.cpp
         Source/ui/Controls.cpp
+        Source/ui/Tape.cpp
+        Source/ui/FirstLight.cpp
+        Source/ui/HostFocus.cpp
         Source/dsp/Echo.cpp
         Source/dsp/Itch.cpp
         Source/dsp/Engine.cpp

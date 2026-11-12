@@ -57,6 +57,20 @@ void ItchStrip::Sprite::draw (juce::Graphics& g, juce::Point<float> centre, floa
 void ItchStrip::tick()
 {
     auto& d = processor.display;
+    if (ghost.on)
+    {
+        repetition += (ghost.repetition - repetition) * 0.2f;
+        progress = ghost.progress;
+        for (size_t k = 0; k < (size_t) heads; ++k)
+        {
+            lamps[k] += (ghost.lamps[k] - lamps[k]) * (ghost.lamps[k] > lamps[k] ? 0.6f : 0.12f);
+            embers[k] = ghost.embers[k];
+        }
+        reveal += (std::max (ghost.reveal, hovering || dragging ? 1.0f : 0.0f) - reveal) * 0.15f;
+        wordGlow += (ghost.wordmark - wordGlow) * 0.1f;
+        repaint();
+        return;
+    }
     repetition += (d.repetition.load (std::memory_order_relaxed) - repetition) * 0.2f;
     progress = d.frameProgress.load (std::memory_order_relaxed);
     for (size_t k = 0; k < (size_t) heads; ++k)
@@ -64,8 +78,73 @@ void ItchStrip::tick()
         const float target = d.lamps[k].load (std::memory_order_relaxed);
         lamps[k] += (target - lamps[k]) * (target > lamps[k] ? 0.6f : 0.12f);
     }
+
+    // keep: the last itch's lamps stay as embers, dimming as the minute forgets it
+    const auto& keep = processor.keep;
+    const dendrite::keep::Mark* last = nullptr;
+    for (auto it = keep.diary().rbegin(); it != keep.diary().rend(); ++it)
+        if (it->kind == dendrite::keep::Kind::itch && it->endSample >= 0)
+        {
+            last = &*it;
+            break;
+        }
+    emberMark = last != nullptr ? last->id : 0;
+    const float age = last != nullptr ? (float) ((double) (keep.written() - last->endSample) / (double) std::max<int64_t> (1, keep.capacity())) : 1.0f;
+    const float glow = 0.3f * std::pow (std::clamp (1.0f - age, 0.0f, 1.0f), 1.5f);
+    const float breathe = 0.85f + 0.15f * (float) std::sin (juce::Time::getMillisecondCounterHiRes() * 0.0011);
+    for (int k = 0; k < heads; ++k)
+    {
+        const bool in = last != nullptr && ((last->headsMask >> k) & 1u);
+        const float target = in ? glow * breathe * (lampPressed ? 2.2f : 1.0f) : 0.0f;
+        embers[(size_t) k] += (target - embers[(size_t) k]) * 0.1f;
+    }
     reveal += ((hovering || dragging ? 1.0f : 0.0f) - reveal) * 0.15f;
+    const bool overWord = hovering && wordmarkArea().contains (mouseAt);
+    wordGlow += ((overWord ? 0.6f : 0.0f) - wordGlow) * 0.15f;
     repaint();
+}
+
+void ItchStrip::simulateLampPress (bool down)
+{
+    if (down && ! lampPressed)
+    {
+        if (const auto* m = processor.keep.find (emberMark))
+            if (auto t = processor.keep.takeMark (*m, false))
+            {
+                lampPressed = true;
+                lampDragged = false;
+                if (tape != nullptr)
+                    tape->hold (*t, m);
+            }
+    }
+    else if (! down && lampPressed)
+    {
+        lampPressed = false;
+        if (tape != nullptr)
+            tape->release();
+    }
+}
+
+juce::Rectangle<float> ItchStrip::wordmarkArea() const
+{
+    const float y = dot (0).y;
+    return { 26.0f, y - 14.0f, 92.0f, 26.0f };
+}
+
+juce::Point<float> ItchStrip::lampCentre (int head) const
+{
+    const float cw = headsArea.getWidth() / (float) heads;
+    return { headsArea.getX() + cw * ((float) head + 0.5f), dot (0).y };
+}
+
+int ItchStrip::lampAt (juce::Point<float> p) const
+{
+    if (headsArea.isEmpty() || ! headsArea.contains (p))
+        return -1;
+    for (int k = 0; k < heads; ++k)
+        if (p.getDistanceFrom (lampCentre (k)) < 18.0f)
+            return k;
+    return -1;
 }
 
 juce::Rectangle<float> ItchStrip::dotsArea() const
@@ -90,9 +169,15 @@ void ItchStrip::paint (juce::Graphics& g)
     const float y = dot (0).y;
 
     // the name, and nothing else
-    g.setColour (colour::ink.withAlpha (0.55f));
+    g.setColour (colour::ink.withAlpha (0.55f + 0.45f * wordGlow));
     g.setFont (fonts->make (fonts->light, 19.0f, 0.06f));
     g.drawText ("dendrite", juce::Rectangle<float> (30.0f, y - 14.0f, 150.0f, 26.0f), juce::Justification::centredLeft);
+    if (wordGlow > 0.01f)
+    {
+        // a thin line of light under the name: it can be pressed (first light plays again)
+        g.setColour (colour::ink.withAlpha (0.5f * wordGlow));
+        g.drawLine (31.0f, y + 12.0f, 31.0f + 74.0f * std::min (1.0f, 0.4f + wordGlow), y + 12.0f, 0.7f);
+    }
 
     g.setColour (colour::redText.withAlpha (0.85f)); // the itch's things are the red ones
     g.setFont (fonts->small (*this, fonts->regular, 12.5f, 0.08f));
@@ -160,14 +245,15 @@ void ItchStrip::paint (juce::Graphics& g)
         for (int k = 0; k < heads; ++k)
         {
             const juce::Point<float> c { headsArea.getX() + cw * ((float) k + 0.5f), y };
-            const float lit = lamps[k];
-            // a red LED in a dark panel: nearly invisible at rest, lit as its head plays
+            // a red LED in a dark panel: nearly invisible at rest, lit as its head plays; after an
+            // itch its lamps keep a faint ember while keep still holds it
+            const float lit = std::max (lamps[k], embers[k]);
             lampOff.draw (g, c, lampSize, 1.0f - lit);
             lampOn.draw (g, c, lampSize, lit);
-            const float nameAlpha = std::max ({ lit, 0.5f * reveal, 0.25f }); // faint at rest, so you can learn them
+            const float nameAlpha = std::max ({ lit, 0.5f * reveal, 0.25f, std::min (1.0f, 2.0f * embers[k]) }); // faint at rest, so you can learn them
             if (nameAlpha > 0.02f)
             {
-                g.setColour (colour::red.interpolatedWith (colour::redText, lit).withAlpha (nameAlpha));
+                g.setColour (colour::red.interpolatedWith (colour::redText, lit).withAlpha (std::min (1.0f, nameAlpha)));
                 g.setFont (fonts->small (*this, fonts->regular, 12.0f, 0.04f));
                 g.drawText (headNames[k], juce::Rectangle<float> (cw + 20.0f, 14.0f).withCentre (c.translated (0.0f, 20.0f)),
                             juce::Justification::centred);
@@ -193,11 +279,33 @@ juce::String ItchStrip::getTooltip()
         return juce::String (juce::CharPointer_UTF8 ("how the repeats fall: dotted, triplet or half time \xc2\xb7 click to change"));
     if (dryArea().contains (mouseAt))
         return "dry: off for a return track (echo only)";
+    if (wordmarkArea().contains (mouseAt))
+        return "dendrite: click to see how it works";
+    if (const int k = lampAt (mouseAt); k >= 0 && embers[(size_t) k] > 0.01f)
+        return "the last itch: pull it into Live (shift: with everything)";
     return {};
 }
 
 void ItchStrip::mouseDown (const juce::MouseEvent& e)
 {
+    if (wordmarkArea().contains (e.position))
+    {
+        if (onWordmark)
+            onWordmark();
+        return;
+    }
+    if (const int k = lampAt (e.position); k >= 0 && embers[(size_t) k] > 0.01f)
+    {
+        if (const auto* m = processor.keep.find (emberMark))
+            if (auto t = processor.keep.takeMark (*m, e.mods.isShiftDown()))
+            {
+                lampPressed = true;
+                lampDragged = false;
+                if (tape != nullptr)
+                    tape->hold (*t, m);
+            }
+        return;
+    }
     if (timeArea().contains (e.position))
     {
         timeLink.setValueAsCompleteGesture ((float) ((timeChoice + 1) % 3));
@@ -217,12 +325,41 @@ void ItchStrip::mouseDown (const juce::MouseEvent& e)
 
 void ItchStrip::mouseDrag (const juce::MouseEvent& e)
 {
+    if (lampPressed)
+    {
+        if (! lampDragged && e.getDistanceFromDragStart() >= 6)
+        {
+            lampDragged = true;
+            const auto* m = processor.keep.find (emberMark);
+            auto t = m != nullptr ? processor.keep.takeMark (*m, e.mods.isShiftDown()) : std::nullopt;
+            juce::Component::SafePointer<ItchStrip> self (this);
+            auto done = [self] {
+                if (self == nullptr)
+                    return;
+                self->lampPressed = false;
+                if (self->tape != nullptr)
+                {
+                    self->tape->release();
+                    self->tape->flashKept();
+                }
+            };
+            if (! t || ! dragOut (processor.keep, *t, *this, done))
+                done();
+        }
+        return;
+    }
     if (dragging)
         link.setValueAsPartOfGesture ((float) dotAt (e.position));
 }
 
 void ItchStrip::mouseUp (const juce::MouseEvent&)
 {
+    if (lampPressed && ! lampDragged)
+    {
+        lampPressed = false;
+        if (tape != nullptr)
+            tape->release();
+    }
     if (dragging)
         link.endGesture();
     dragging = false;
@@ -232,8 +369,12 @@ void ItchStrip::mouseMove (const juce::MouseEvent& e)
 {
     hovering = true;
     mouseAt = e.position;
-    const bool over = dotsArea().expanded (4.0f, 0.0f).contains (e.position) || timeArea().contains (e.position) || dryArea().contains (e.position);
-    setMouseCursor (over ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    const bool over = dotsArea().expanded (4.0f, 0.0f).contains (e.position) || timeArea().contains (e.position)
+                      || dryArea().contains (e.position) || wordmarkArea().contains (e.position);
+    const int lamp = lampAt (e.position);
+    setMouseCursor (lamp >= 0 && embers[(size_t) lamp] > 0.01f ? juce::MouseCursor::DraggingHandCursor
+                    : over                                     ? juce::MouseCursor::PointingHandCursor
+                                                               : juce::MouseCursor::NormalCursor);
 }
 
 void ItchStrip::mouseExit (const juce::MouseEvent&)

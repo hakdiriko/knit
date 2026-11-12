@@ -119,14 +119,15 @@ private:
     uint32_t nextId = 1;
 
     // marks travel to the window through a FIFO; a mark is sent when it begins and when it ends
-    juce::AbstractFifo fifo { 256 };
-    std::array<Mark, 256> pending {};
+    juce::AbstractFifo fifo { 1024 };
+    std::array<Mark, 1024> pending {};
 
     // message thread
     std::vector<Mark> marks;
     struct Kept { uint32_t id = 0; bool itchOnly = false; juce::File file; };
     std::vector<Kept> kept;
-    std::map<uint32_t, juce::Time> heardAt;
+    std::atomic<uint32_t> epoch { 0 }; // prepare() started a new tape: the diary starts over
+    uint32_t seenEpoch = 0;
 };
 
 // "scream laugh ghost": the heads in a mask, by name.

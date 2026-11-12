@@ -36,6 +36,7 @@ void Keep::prepare (double sampleRate, int maxBlock)
         for (auto* v : { &allL, &allR, &itchL, &itchR })
             v->assign ((size_t) frames, 0.0f);
         writtenFrames.store (0, std::memory_order_release);
+        epoch.fetch_add (1, std::memory_order_release);
         itchState = ItchState::idle;
         throwOn = runawayOn = false;
     }
@@ -226,6 +227,14 @@ Keep::Clock Keep::clock() const noexcept
 
 void Keep::collect()
 {
+    if (const auto e = epoch.load (std::memory_order_acquire); e != seenEpoch)
+    {
+        seenEpoch = e;
+        marks.clear();
+        kept.clear();
+        { const auto drop = fifo.read (fifo.getNumReady()); } // marks from the old tape
+        return;
+    }
     const int ready = fifo.getNumReady();
     if (ready > 0)
     {
@@ -238,10 +247,7 @@ void Keep::collect()
                 if (it != marks.end())
                     *it = m;
                 else
-                {
                     marks.push_back (m);
-                    heardAt[m.id] = juce::Time::getCurrentTime();
-                }
             }
         };
         take (scope.startIndex1, scope.blockSize1);
@@ -253,10 +259,7 @@ void Keep::collect()
     marks.erase (std::remove_if (marks.begin(), marks.end(),
                                  [&] (const Mark& m) {
                                      const auto end = m.endSample >= 0 ? m.endSample : written();
-                                     if (end >= oldest)
-                                         return false;
-                                     heardAt.erase (m.id);
-                                     return true;
+                                     return end < oldest;
                                  }),
                  marks.end());
     kept.erase (std::remove_if (kept.begin(), kept.end(), [&] (const Kept& k) { return find (k.id) == nullptr; }), kept.end());
@@ -356,10 +359,10 @@ std::optional<Take> Keep::takeFrom (int64_t frame) const
 
 juce::String Keep::stamp (const Mark* m) const
 {
+    // the clock time it happened: as long ago as it is on the tape
     auto when = juce::Time::getCurrentTime();
     if (m != nullptr)
-        if (auto it = heardAt.find (m->id); it != heardAt.end())
-            when = it->second;
+        when -= juce::RelativeTime::seconds ((double) std::max<int64_t> (0, written() - m->sample) / sr);
     return when.formatted ("%H-%M-%S");
 }
 

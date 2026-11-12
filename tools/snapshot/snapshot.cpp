@@ -10,6 +10,10 @@
 //   DENDRITE_FRAMES=dir                also write frames at 30 fps (frame_00000.png ...)
 //   DENDRITE_FRAMES_FROM=t             ... starting at t seconds
 //   DENDRITE_AUDIO=out.wav             also write what came out of the plug-in
+//   DENDRITE_FIRST_LIGHT=1             play first light from the start
+//   DENDRITE_STRIP_HOVER=t0,t1         the mouse rests in the strip from t0 to t1 (the tape shows)
+//   DENDRITE_KEEP_HOLD=t0,t1           the last itch's ember lamp is held from t0 to t1 (the ruler opens)
+//   DENDRITE_KEEP_OUT=dir              at the end, write the last finished itch as keep would drag it
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Processor.h"
 #include "Editor.h"
@@ -34,6 +38,8 @@ bool writePng (juce::Component& c, const juce::File& out, float scale)
 
 int main (int argc, char** argv)
 {
+    // first light only when asked for (DENDRITE_FIRST_LIGHT=1), so pictures show the window itself
+    setenv ("DENDRITE_FIRST_LIGHT", "0", 0);
     juce::ScopedJuceInitialiser_GUI gui;
     if (argc < 3)
     {
@@ -114,6 +120,14 @@ int main (int argc, char** argv)
             editor->getField().simulateMove ({ space + 0.28f * std::sin (0.9f * u) + 0.06f * std::sin (2.3f * u),
                                                1.0f - feed - 0.22f * std::sin (0.6f * u) + 0.05f * std::cos (1.9f * u) });
         }
+        auto within = [&] (const char* name) {
+            const auto v = juce::StringArray::fromTokens (env (name), ",", "");
+            return v.size() == 2 && now >= v[0].getDoubleValue() && now < v[1].getDoubleValue();
+        };
+        if (env ("DENDRITE_STRIP_HOVER").isNotEmpty())
+            editor->getItchStrip().simulateHover (within ("DENDRITE_STRIP_HOVER"));
+        if (env ("DENDRITE_KEEP_HOLD").isNotEmpty())
+            editor->getItchStrip().simulateLampPress (within ("DENDRITE_KEEP_HOLD"));
         processor.processBlock (buffer, midi);
         if (audioOut != nullptr)
             audioOut->writeFromAudioSampleBuffer (buffer, 0, 512);
@@ -129,6 +143,18 @@ int main (int argc, char** argv)
         }
     }
     editor->animateTo (t + 0.001);
+    if (env ("DENDRITE_KEEP_OUT").isNotEmpty())
+    {
+        processor.keep.collect();
+        const auto& d = processor.keep.diary();
+        for (auto it = d.rbegin(); it != d.rend(); ++it)
+            if (it->kind == dendrite::keep::Kind::itch && it->endSample >= 0)
+            {
+                if (auto take = processor.keep.takeMark (*it, false))
+                    std::printf ("kept %s\n", processor.keep.write (*take, juce::File (env ("DENDRITE_KEEP_OUT"))).getFullPathName().toRawUTF8());
+                break;
+            }
+    }
     if (env ("DENDRITE_TIME").isNotEmpty())
     {
         // how long one frame of the window takes to tick and paint, in software

@@ -94,8 +94,8 @@ namespace
 
 Field::Field (DendriteProcessor& p)
     : processor (p),
-      feedLink (*p.params.getParameter ("feed"), [this] (float v) { feed = v; }),
-      spaceLink (*p.params.getParameter ("space"), [this] (float v) { space = v; }),
+      feedLink (*p.params.getParameter ("feed"), [this] (float v) { realFeed = v; if (! ghostOn) feed = v; }),
+      spaceLink (*p.params.getParameter ("space"), [this] (float v) { realSpace = v; if (! ghostOn) space = v; }),
       throwLink (*p.params.getParameter ("throw"), [this] (float v) { throwHeld = v > 0.5f; }),
       random (juce::Random::getSystemRandom().nextInt64())
 {
@@ -971,7 +971,7 @@ void Field::growHeads (double t)
     auto& d = processor.display;
     float lamp[dendrite::Heads::count];
     for (int k = 0; k < dendrite::Heads::count; ++k)
-        lamp[k] = d.lamps[(size_t) k].load (std::memory_order_relaxed);
+        lamp[k] = ghostOn ? ghostLamp[k] : d.lamps[(size_t) k].load (std::memory_order_relaxed);
     const float pi = juce::MathConstants<float>::pi;
     const auto lp = light();
 
@@ -1378,8 +1378,8 @@ void Field::tick (double t)
     auto& d = processor.display;
 
     float brightest = 0.0f;
-    for (const auto& lamp : d.lamps)
-        brightest = std::max (brightest, lamp.load (std::memory_order_relaxed));
+    for (int k = 0; k < dendrite::Heads::count; ++k)
+        brightest = std::max (brightest, ghostOn ? ghostLamp[k] : d.lamps[(size_t) k].load (std::memory_order_relaxed));
     itchLit = brightest;
 
     // new trees: one per onset the audio thread heard
@@ -1459,10 +1459,10 @@ void Field::tick (double t)
         touching = true;
         setThrow (true);
     }
-    const float target = dragging || hovering ? 1.0f : 0.0f;
+    const float target = dragging || hovering || ghostGrab ? 1.0f : 0.0f;
     labelAlpha += (target - labelAlpha) * 0.12f;
     hoverDarkGlow += ((hoverDark && ! touching && ! pendingThrow ? 1.0f : 0.0f) - hoverDarkGlow) * 0.1f;
-    hintAlpha += ((hovering || hoverDark || dragging ? 1.0f : 0.0f) - hintAlpha) * 0.08f;
+    hintAlpha += ((hovering || hoverDark || dragging || ghostGrab ? 1.0f : 0.0f) - hintAlpha) * 0.08f;
     // loudness against the track's own last few seconds (the processor measures it), so a quiet
     // mix lights up like a loud one: the hits flash the light, the held level makes it glow
     const float hitNow = d.hit.exchange (0.0f, std::memory_order_relaxed);
@@ -1470,7 +1470,7 @@ void Field::tick (double t)
     const float held = std::max (d.body.load (std::memory_order_relaxed), d.echoBody.load (std::memory_order_relaxed));
     bodyRel += (std::min (1.0f, held) - bodyRel) * (1.0f - std::exp (-dt / 0.3f));
     pointGlow += (std::min (1.0f, std::max (hitGlow, 0.8f * bodyRel)) - pointGlow) * 0.25f;
-    const float throwing = std::max (throwHeld ? 1.0f : 0.0f, d.throwing.load (std::memory_order_relaxed));
+    const float throwing = std::max (throwHeld || ghostDown ? 1.0f : 0.0f, d.throwing.load (std::memory_order_relaxed));
     throwGlow += (throwing - throwGlow) * (throwing > throwGlow ? 0.5f : 0.08f);
     touchGlow += ((touching ? 1.0f : 0.0f) - touchGlow) * (touching ? 0.5f : 0.1f);
     repaint();
@@ -1634,6 +1634,56 @@ void Field::setThrow (bool on)
 {
     throwHeld = on;
     throwLink.setValueAsCompleteGesture (on ? 1.0f : 0.0f);
+}
+
+void Field::setGhost (bool on)
+{
+    if (on == ghostOn)
+        return;
+    ghostOn = on;
+    ghostGrab = ghostDown = false;
+    std::fill (std::begin (ghostLamp), std::end (ghostLamp), 0.0f);
+    if (! on)
+    {
+        // the light glides back to where you left it: the field's own smoothing does the rest
+        feed = realFeed;
+        space = realSpace;
+        touching = false;
+    }
+}
+
+void Field::ghostLight (juce::Point<float> unit, bool grabbed)
+{
+    if (! ghostOn)
+        return;
+    space = std::clamp (unit.x, 0.0f, 1.0f);
+    feed = std::clamp (1.0f - unit.y, 0.0f, 1.0f);
+    ghostGrab = grabbed;
+}
+
+void Field::ghostPress (juce::Point<float> unit, bool down)
+{
+    if (! ghostOn)
+        return;
+    touch = toScreen (unit);
+    if (down && ! ghostDown)
+        spawnRoot (0.9f, throwKind, now);
+    ghostDown = touching = down;
+}
+
+void Field::ghostHit (float level, bool thrown)
+{
+    if (! ghostOn)
+        return;
+    spawnRoot (level, thrown ? throwKind : echoKind, now);
+    hitGlow = std::max (hitGlow, level);
+    nextSpark = std::min (nextSpark, now + 0.02);
+}
+
+void Field::ghostLamps (const float* lamps)
+{
+    for (int k = 0; k < dendrite::Heads::count; ++k)
+        ghostLamp[k] = lamps[k];
 }
 
 void Field::simulateTouch (juce::Point<float> unit, bool down)

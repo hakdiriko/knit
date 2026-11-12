@@ -55,6 +55,18 @@ public:
     // For the snapshot tool's with/without comparison: let strands join (synapses) or not.
     void setSynapses (bool on) { synapsesOn = on; }
 
+    // first light: a puppet takes over the picture. The sound and the parameters stay yours:
+    // the light the puppet moves, its presses and its hits are drawn, never sent.
+    void setGhost (bool on);
+    void ghostLight (juce::Point<float> unit, bool grabbed);
+    void ghostPress (juce::Point<float> unit, bool down);
+    void ghostHit (float level, bool thrown);
+    void ghostLamps (const float* lamps); // Heads::count values
+    juce::Point<float> screenOf (juce::Point<float> unit) const { return toScreen (unit); }
+    juce::Point<float> unitOf (juce::Point<float> screen) const { return toUnit (screen); }
+    juce::Point<float> lightOnScreen() const { return light(); }
+    juce::Point<float> lightUnit() const { return pointUnit(); }
+
 private:
     enum Kind : uint8_t { echoKind, throwKind, screamKind, laughKind, manipulateKind, swarmKind, ghostKind };
 
@@ -172,6 +184,9 @@ private:
     juce::SharedResourcePointer<Fonts> fonts;
     juce::ParameterAttachment feedLink, spaceLink, throwLink;
     float feed = DendriteProcessor::defaultFeed, space = DendriteProcessor::defaultSpace;
+    float realFeed = DendriteProcessor::defaultFeed, realSpace = DendriteProcessor::defaultSpace;
+    bool ghostOn = false, ghostGrab = false, ghostDown = false;
+    float ghostLamp[dendrite::Heads::count] {};
 
     Medium medium;
     std::vector<Joint> joints;

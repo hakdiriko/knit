@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../Processor.h"
+#include "Tape.h"
 #include "Theme.h"
 
 namespace dendrite::ui
@@ -32,6 +33,31 @@ public:
     void setHeadsArea (juce::Rectangle<float> r) { headsArea = r; }
     static constexpr float dotsLeft = 240.0f;
 
+    // how much the strip is showing itself (the mouse is in it): the tape above follows it
+    float getReveal() const noexcept { return reveal; }
+    // keep: the lamps of the last itch stay as embers; pulling one takes that itch. The tape
+    // above shows the ruler while a lamp is held.
+    void setTape (KeepTape* t) { tape = t; }
+    // the wordmark: click it to see first light again
+    std::function<void()> onWordmark;
+    juce::Rectangle<float> wordmarkArea() const;
+
+    // first light: a puppet of the strip that shows the itch without touching anything
+    struct Ghost
+    {
+        bool on = false;
+        float repetition = 0.0f, progress = 0.0f, reveal = 0.0f, wordmark = 0.0f;
+        float lamps[dendrite::Heads::count] {};
+        float embers[dendrite::Heads::count] {};
+    };
+    void setGhost (const Ghost& g) { ghost = g; }
+    juce::Point<float> lampCentre (int head) const;
+    juce::Point<float> chosenDot() const { return dot (choice); }
+
+    // For the snapshot tool: the mouse resting in the strip, and an ember lamp held.
+    void simulateHover (bool on) { hovering = on; }
+    void simulateLampPress (bool down);
+
 private:
     juce::Rectangle<float> dotsArea() const;
     juce::Point<float> dot (int k) const;
@@ -50,6 +76,13 @@ private:
     int choice = DendriteProcessor::defaultItch;
     float repetition = 0.0f, progress = 0.0f, reveal = 0.0f;
     float lamps[dendrite::Heads::count] {};
+    float embers[dendrite::Heads::count] {};
+    uint32_t emberMark = 0;
+    int lampAt (juce::Point<float>) const;
+    bool lampPressed = false, lampDragged = false;
+    KeepTape* tape = nullptr;
+    Ghost ghost;
+    float wordGlow = 0.0f;
     bool dragging = false, hovering = false;
 };
 } // namespace dendrite::ui
