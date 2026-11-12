@@ -177,6 +177,11 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         // The dry passes untouched; bypass fades the echo and the heads out.
         wetNow += std::clamp (wetTarget - wetNow, -wetStep, wetStep);
         const float em = wetNow * (wm + hm), es = wetNow * (ws + hs);
+        if (tapLeft != nullptr)
+        {
+            tapLeft[i] = wetNow * (hm + hs);
+            tapRight[i] = wetNow * (hm - hs);
+        }
         float wetL = em + es, wetR = em - es;
 
         // Safety limiter on the echo only: the dry passes untouched, always. When the dry and

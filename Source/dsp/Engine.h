@@ -58,6 +58,14 @@ public:
 
     bool takeOnset (float& level, bool& thrown) noexcept { return echo.takeOnset (level, thrown); }
 
+    // keep: what the heads play (the itch alone, after bypass's fade), written per sample into
+    // these, which must hold a whole block. nullptr: not recorded.
+    void setItchTap (float* left, float* right) noexcept
+    {
+        tapLeft = left;
+        tapRight = right;
+    }
+
     // For the offline tools: what each head played this sample.
     const Heads& itchHeads() const noexcept { return heads; }
 
@@ -68,6 +76,9 @@ private:
     Echo echo;
     Listener listener;
     Heads heads;
+
+    float* tapLeft = nullptr;
+    float* tapRight = nullptr;
 
     int itchChoice = defaultFrame;
     float wetTarget = 1.0f, wetNow = 1.0f, wetStep = 0.0f, dryTarget = 1.0f, dryNow = 1.0f;

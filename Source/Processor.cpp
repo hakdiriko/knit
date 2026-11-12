@@ -78,12 +78,13 @@ bool DendriteProcessor::isBusesLayoutSupported (const BusesLayout& layouts) cons
         && (in == juce::AudioChannelSet::stereo() || in == juce::AudioChannelSet::mono());
 }
 
-void DendriteProcessor::prepareToPlay (double sampleRate, int)
+void DendriteProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     setLatencySamples (0);
     engine.setControls (feedParam->load(), spaceParam->load(), false, (int) itchParam->load(), bypassParam->load() > 0.5f);
     engine.setStyle ((int) timeParam->load(), dryParam->load() > 0.5f);
     engine.prepare ((float) sampleRate);
+    keep.prepare (sampleRate, std::max (samplesPerBlock, 512));
 }
 
 void DendriteProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) { run (buffer, false); }
@@ -123,7 +124,22 @@ void DendriteProcessor::run (juce::AudioBuffer<float>& buffer, bool forceBypass)
     engine.setControls (feedParam->load(), spaceParam->load(), throwParam->load() > 0.5f, (int) itchParam->load(),
                         forceBypass || bypassParam->load() > 0.5f);
     engine.setStyle ((int) timeParam->load(), dryParam->load() > 0.5f);
-    engine.process (buffer.getWritePointer (0), buffer.getWritePointer (1), n, hostTime);
+    // in pieces no longer than keep's tap, so the heads can be recorded whatever block the host sends
+    {
+        auto* left = buffer.getWritePointer (0);
+        auto* right = buffer.getWritePointer (1);
+        const int frameChoice = (int) itchParam->load();
+        engine.setItchTap (keep.itchTapLeft(), keep.itchTapRight());
+        auto piece = hostTime;
+        for (int done = 0; done < n;)
+        {
+            const int m = std::min (n - done, keep.tapSize());
+            engine.process (left + done, right + done, m, piece);
+            keep.capture (left + done, right + done, m, engine.view(), piece, frameChoice);
+            piece.ppq += m * piece.bpm / 60.0 / getSampleRate();
+            done += m;
+        }
+    }
 
     // Never hand a host a NaN or an infinity.
     for (int c = 0; c < 2; ++c)

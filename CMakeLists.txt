@@ -65,7 +65,8 @@ target_sources(dendrite PRIVATE
     Source/ui/Controls.cpp
     Source/dsp/Echo.cpp
     Source/dsp/Itch.cpp
-    Source/dsp/Engine.cpp)
+    Source/dsp/Engine.cpp
+    Source/keep/Keep.cpp)
 
 target_include_directories(dendrite PRIVATE Source)
 
@@ -101,10 +102,22 @@ if(DENDRITE_TOOLS)
         Source/ui/Controls.cpp
         Source/dsp/Echo.cpp
         Source/dsp/Itch.cpp
-        Source/dsp/Engine.cpp)
+        Source/dsp/Engine.cpp
+        Source/keep/Keep.cpp)
     target_include_directories(dendrite_snapshot PRIVATE Source)
     target_compile_definitions(dendrite_snapshot PRIVATE
         JucePlugin_Name="dendrite" JucePlugin_VersionString="1.1.0"
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
     target_link_libraries(dendrite_snapshot PRIVATE dendrite_fonts juce::juce_audio_utils juce::juce_recommended_config_flags)
+
+    # keep, tested headless: marks, bar-aligned takes, WAVs
+    juce_add_console_app(dendrite_keeptest PRODUCT_NAME "dendrite_keeptest")
+    get_target_property(dendrite_snapshot_sources dendrite_snapshot SOURCES)
+    list(FILTER dendrite_snapshot_sources EXCLUDE REGEX "snapshot\\.cpp$")
+    target_sources(dendrite_keeptest PRIVATE tools/keeptest/keeptest.cpp ${dendrite_snapshot_sources})
+    target_include_directories(dendrite_keeptest PRIVATE Source)
+    target_compile_definitions(dendrite_keeptest PRIVATE
+        JucePlugin_Name="dendrite" JucePlugin_VersionString="1.3.0"
+        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(dendrite_keeptest PRIVATE dendrite_fonts juce::juce_audio_utils juce::juce_recommended_config_flags)
 endif()
