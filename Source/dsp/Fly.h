@@ -158,6 +158,7 @@ private:
     static constexpr float fearFull = 0.35f; // this much weaker counts as full fear
     bool busyNow = false; // jumping or scratching, with hysteresis (for keep's diary and the lamps)
     Touch target, touch;
+    float touchGlide = 0.005f;
     Doing now;
 };
 } // namespace dendrite

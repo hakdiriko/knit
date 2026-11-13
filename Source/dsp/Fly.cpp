@@ -68,6 +68,7 @@ void Fly::prepare (float sampleRate) noexcept
             y.af = coeff (0.005f, 1.0f / sr);
             y.as = coeff (0.08f, 1.0f / sr);
         }
+    touchGlide = coeff (0.004f, 1.0f / sr);
     scaleUp = coeff (0.05f, dtSec);
     scaleDown = coeff (30.0f, dtSec);
     for (int b = 0; b < flydata::smells; ++b)
@@ -135,8 +136,16 @@ const Touch& Fly::process (float left, float right) noexcept
 {
     if (awakeNow <= 0.0f)
     {
-        touch = Touch {};
+        // asleep: the echo glides back to itself
+        target = Touch {};
         now = Doing {};
+        touch.speed += touchGlide * (1.0f - touch.speed);
+        touch.feed += touchGlide * (0.0f - touch.feed);
+        touch.space += touchGlide * (0.0f - touch.space);
+        touch.band += touchGlide * (0.0f - touch.band);
+        touch.freeze += touchGlide * (0.0f - touch.freeze);
+        touch.lift += touchGlide * (1.0f - touch.lift);
+        touch.throwing = false;
         return touch;
     }
     // the senses run every sample; what they hold is read at the brain's pace
@@ -174,6 +183,16 @@ const Touch& Fly::process (float left, float right) noexcept
             live();
         }
     }
+    // the brain moves in 0.5 ms steps; the echo is moved smoothly, sample by sample, or the tape's
+    // speed would jump every step and the repeats would crackle like a bitcrusher
+    touch.speed += touchGlide * (target.speed - touch.speed);
+    touch.feed += touchGlide * (target.feed - touch.feed);
+    touch.space += touchGlide * (target.space - touch.space);
+    touch.band += touchGlide * (target.band - touch.band);
+    touch.bandHz += touchGlide * (target.bandHz - touch.bandHz);
+    touch.freeze += touchGlide * (target.freeze - touch.freeze);
+    touch.lift += touchGlide * (target.lift - touch.lift);
+    touch.throwing = target.throwing;
     return touch;
 }
 
@@ -471,25 +490,25 @@ void Fly::reflexes() noexcept
     throwGlow += coeff (0.3f, dt) * ((throwing ? 1.0f : 0.0f) - throwGlow);
     const float leanNow = std::clamp ((lean - leanHabit) / 0.8f, -1.0f, 1.0f);
 
-    touch.speed = std::pow (2.0f, 0.4f * lurch);
-    touch.feed = clamp01 (excited / 4.0f) * 0.18f - 0.05f;
-    touch.space = 0.35f * leanNow;
-    touch.band = band;
+    target.speed = std::pow (2.0f, 0.4f * lurch);
+    target.feed = clamp01 (excited / 4.0f) * 0.18f - 0.05f;
+    target.space = 0.35f * leanNow;
+    target.band = band;
     // where it scratches: where the music leaves room, moved by its legs' rub, lower when scared,
     // and wandering with what its MBONs say
     const float place = std::clamp (rub / 40.0f, -1.2f, 1.2f) + (innerLife ? 0.8f * mood - 1.2f * fear : 0.0f);
-    touch.bandHz = std::clamp (emptyHz * std::pow (2.0f, place), 150.0f, 7000.0f);
-    touch.freeze += coeff (0.05f, dt) * ((freezing ? 1.0f : 0.0f) - touch.freeze);
-    touch.throwing = throwing;
-    touch.lift = 1.0f + 0.6f * band + 0.8f * throwGlow;
+    target.bandHz = std::clamp (emptyHz * std::pow (2.0f, place), 150.0f, 7000.0f);
+    target.freeze += coeff (0.05f, dt) * ((freezing ? 1.0f : 0.0f) - target.freeze);
+    target.throwing = throwing;
+    target.lift = 1.0f + 0.6f * band + 0.8f * throwGlow;
 
     busyNow = lurchLeft > 0.0f || band > (busyNow ? 0.08f : 0.3f);
     now.jump = lurchLeft > 0.0f ? lurchSize : 0.0f;
     now.semitones = 12.0f * 0.4f * lurch;
     now.throwing = throwing;
-    now.frozen = touch.freeze > 0.5f;
+    now.frozen = target.freeze > 0.5f;
     now.scratch = band;
-    now.scratchHz = touch.bandHz;
+    now.scratchHz = target.bandHz;
     now.turn = leanNow;
     now.arousal = arousal;
     now.fatigue = fatigue;

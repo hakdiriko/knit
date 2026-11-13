@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.1
+
+- **The bitcrush is gone.** The fly's brain moves in 0.5 ms steps, and the echo's tape speed jumped with it every step, so its repeats crackled like a bitcrusher whenever it jumped or leaned (since 2.1). Now the echo glides to what the fly wants, sample by sample (about 4 ms). On Hakan's loop the grit above 10 kHz drops by 30 dB, to where it is with the itch off. Turning the itch off also glides back instead of snapping.
+- `docs/FLY_HANDOFF.md`: the fly explained end to end (data, cut, model, inner life, mapping, view, measurements, training plan, open problems, how to split it out as an add-on), for whoever takes it over.
+
 ## 2.2.0 (the fly's inner life)
 
 **The fly lives between the hits.** In 2.1 nothing inside the fly changed, so on a loop it did the same thing every pass: on Hakan's 3.8 s loop it jumped twice a pass, every pass, and its tape moves were 99% alike pass to pass. Now it has an inner life, all of it in its own neurons.
