@@ -248,6 +248,10 @@ void DendriteProcessor::publish()
     d.flyScratch.store (v.fly.scratch, relaxed);
     d.flyScratchHz.store (v.fly.scratchHz, relaxed);
     d.flyTurn.store (v.fly.turn, relaxed);
+    d.flyArousal.store (v.fly.arousal, relaxed);
+    d.flyFatigue.store (v.fly.fatigue, relaxed);
+    d.flyFear.store (v.fly.fear, relaxed);
+    d.flyMemory.store (v.fly.memory, relaxed);
     d.flyThrowing.store (v.fly.throwing, relaxed);
     d.flyFrozen.store (v.fly.frozen, relaxed);
     d.flyAwake.store (v.flyAwake, relaxed);

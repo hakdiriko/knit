@@ -13,7 +13,8 @@
 //                [--repeat N]  (plays the input N times in a row: a loop that goes on)
 //                [--dice]  (1.2's itch: dice by song position, instead of the creature)
 //                [--heads]  (2.0a: the creature fires the heads instead of the fly)
-//                [--fly-log fly.csv]  (every 256 samples: what the fly does)
+//                [--fly-log fly.csv]  (every 256 samples: what the fly does, its moods, memory, feeling)
+//                [--still]  (the 2.1.0 fly: no restlessness, moods or learning)
 //                [--hand]  (2.1 sketch: the itch as a motif on the echo's controls, not the heads)
 //                [--touch touch.csv]  (sketch: seconds,speed,feed,space,band,bandHz,freeze,throwing,lift drive the echo; itch off)
 //                [--hand-log hand.csv]  (every 256 samples: the hand's touch on the echo)
@@ -151,6 +152,7 @@ int main (int argc, char** argv)
     int repeat = 1;
     bool dice = false, loopTransport = false, handMode = false, headsMode = false;
     std::string flyLog;
+    bool still = false;
     size_t onePass = 0;
     unsigned long long genome = 1;
     std::vector<std::pair<double, double>> throws;
@@ -173,6 +175,7 @@ int main (int argc, char** argv)
         else if (k == "--hand") handMode = true;
         else if (k == "--heads") headsMode = true;
         else if (k == "--fly-log") flyLog = next();
+        else if (k == "--still") still = true;
         else if (k == "--hand-log") handLog = next();
         else if (k == "--touch") touchFile = next();
         else if (k == "--loop-transport") loopTransport = true;
@@ -217,6 +220,7 @@ int main (int argc, char** argv)
     engine.useDice (dice);
     engine.useHand (handMode);
     engine.useFly (! handMode && ! headsMode && touchFile.empty());
+    engine.itchFly().setInnerLife (! still);
     std::FILE* flog = flyLog.empty() ? nullptr : std::fopen (flyLog.c_str(), "w");
     engine.setControls (feed, space, false, itch, false);
     engine.prepare ((float) in.sampleRate);
@@ -293,8 +297,9 @@ int main (int argc, char** argv)
         if (flog != nullptr && pos % 256 == 0)
         {
             const auto& d = engine.view().fly;
-            std::fprintf (flog, "%.4f,%.3f,%.3f,%d,%d,%.3f,%.1f,%.3f\n", seconds, d.jump, d.semitones, d.throwing ? 1 : 0,
-                          d.frozen ? 1 : 0, d.scratch, d.scratchHz, d.turn);
+            std::fprintf (flog, "%.4f,%.3f,%.3f,%d,%d,%.3f,%.1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.3f\n", seconds, d.jump, d.semitones,
+                          d.throwing ? 1 : 0, d.frozen ? 1 : 0, d.scratch, d.scratchHz, d.turn, d.arousal, d.fatigue,
+                          d.memory, d.feeling, d.fear);
         }
         if (engine.view().itching && ! itching)
         {

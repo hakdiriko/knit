@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0 (the fly's inner life)
+
+**The fly lives between the hits.** In 2.1 nothing inside the fly changed, so on a loop it did the same thing every pass: on Hakan's 3.8 s loop it jumped twice a pass, every pass, and its tape moves were 99% alike pass to pass. Now it has an inner life, all of it in its own neurons.
+
+- **A bigger brain: 11,705 neurons and 1,034,261 connections**, now with its mushroom body (the fly's memory: 2,459 Kenyon cells, 96 output neurons, 331 dopamine neurons).
+- **It smells the music.** The spectrum, in 32 bands, reaches its antennal lobe's projection neurons, glomerulus by glomerulus; only the bands that stand out count, as an odour is a few glomeruli. Its Kenyon cells answer sparsely: a code for what this sound is.
+- **Restless neurons.** Every neuron gets small random kicks, as real neurons do, so it is never exactly the same fly twice.
+- **Its readiness wanders.** The same hit makes it jump one time and not the next, as a real fly's escape does. On Hakan's loop it now jumps 0, 1 or 2 times a pass.
+- **Moods.** Each jump winds it up (arousal; it calms over about 40 s): wound up, it jumps sooner and harder. Busy music tires it (fatigue, over minutes): tired, it rests longer between jumps and scratches less.
+- **It remembers, and it learns.** When it jumps, the punishing dopamine neurons fire, and where dopamine meets a Kenyon cell that was just active, that cell's synapses onto the output neurons weaken (the way real flies learn to avoid a smell). So the sounds that made it jump stop sounding safe. It forgets over about ten minutes. While a sound is new it springs up (the tape speeds up, short); the more of what it hears once hurt, the likelier it dives (the tape slows, long, throws long, freezes), and it scratches lower. Its output neurons' "come closer" against "keep away" moves where it scratches and how much.
+- On Hakan's loop over three minutes the scratch's place is now 16 to 67% alike pass to pass (2.1: 60 to 75%), the jumps vary in number and kind, and the scratching thins as it tires.
+- **Watch it feel.** The drawer shows its moods and memory in one quiet line ("wound up 0.55 tired 0.23 afraid 0.20 learned 1.4%") and where its mushroom body sits.
+- Its memory and moods last while the plug-in is loaded (a new sample rate or a host reset keeps them); they start fresh when the plug-in loads.
+- It costs about 11% of one CPU core (2.1: about 5%).
+- `tools/fly/`: `sim2.py` (the whole brain with an inner life, offline) and `prune2.py` (the bigger cut). The renderer's `--still` plays the 2.1 fly for comparison; `--fly-log` adds the moods, memory and fear.
+
 ## 2.1.0 (the fly)
 
 **The itch is a real fly's nervous system.** Inside dendrite lives the part of a fruit fly's brain that answers music: 4,431 neurons and 300,922 connections from the FlyWire map of the whole adult brain, wired exactly as they are in the fly and run live the way Shiu et al. (2024) run the whole brain. Nothing about its wiring was designed for dendrite, and it is not trained yet.

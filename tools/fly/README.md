@@ -11,6 +11,8 @@ A real fly's brain hears a wav and its reflexes move dendrite's echo. Since 2.1.
 
 To rebuild the plug-in's fly (`Source/dsp/FlyData.cpp`): run `sim.py` on test material (the eight pieces in the commit that made it: loop, drums, chords, song, pad, voice, pink, and the song at `RATE=400`), then `python3 tools/fly/prune.py` (in that folder: every neuron that fired, plus the senses, into `keep.npy`) and `python3 tools/fly/export.py keep.npy song.npz`.
 
+The 2.2 fly (with an inner life) is a bigger cut: `SR=200 ETA=0.5 python3 tools/fly/sim2.py loop.wav inner.npz 60` runs the whole brain with smell, restless neurons, moods and learning (in the commit that made it: a 3.8 s loop repeated for a minute), then in this folder `python3 prune2.py keep.npy keep2.npy inner.npz` (every neuron that fired, the 2.1 cut, every MBON and DAN; 11,705 neurons) and `python3 export.py keep2.npy song.npz`.
+
 Needs numpy, scipy, pandas, pyarrow, soundfile.
 
 ## Credits

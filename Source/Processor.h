@@ -62,6 +62,7 @@ public:
         std::atomic<bool> hostPlaying { false }, itching { false };
         // the fly: what it is doing now
         std::atomic<float> flyJump { 0.0f }, flySemitones { 0.0f }, flyScratch { 0.0f }, flyScratchHz { 1000.0f }, flyTurn { 0.0f };
+        std::atomic<float> flyArousal { 0.0f }, flyFatigue { 0.0f }, flyFear { 0.0f }, flyMemory { 1.0f };
         std::atomic<bool> flyThrowing { false }, flyFrozen { false }, flyAwake { false };
 
         // onsets: each one starts a new tree in the window

@@ -128,12 +128,27 @@ void FlyBrain::paint (juce::Graphics& g)
     label (2, "eye", area.getWidth() * 0.10f, -lift);
     label (3, "giant fiber: the jump", area.getWidth() * 0.30f, -area.getHeight() * 0.14f);
     label (4, "grooming: the scratch", area.getWidth() * 0.16f, area.getHeight() * 0.22f);
+    label (5, "mushroom body: its memory", area.getWidth() * 0.03f,
+           (flydata::anchors[1].y - flydata::anchors[5].y) * area.getHeight() - lift); // level with the eyes' labels
 
     // what it is doing, and what this is
     const auto bottom = getLocalBounds().toFloat().reduced (40.0f, 0.0f).removeFromBottom (34.0f);
+    const auto& d = processor.display;
     g.setFont (fonts->small (*this, fonts->mono, 13.0f));
     g.setColour (awake ? colour::redText : colour::inkFaint);
     g.drawText (doingLine(), bottom, juce::Justification::centredLeft);
+    // its inner life, one quiet line above: the moods and how much it has learned
+    {
+        constexpr auto relaxed = std::memory_order_relaxed;
+        const float learned = 100.0f * (1.0f - d.flyMemory.load (relaxed));
+        const juce::String inner = "wound up " + juce::String (d.flyArousal.load (relaxed), 2)
+                                   + "   tired " + juce::String (d.flyFatigue.load (relaxed), 2)
+                                   + "   afraid " + juce::String (d.flyFear.load (relaxed), 2)
+                                   + "   learned " + juce::String (learned, 1) + "%";
+        g.setFont (fonts->small (*this, fonts->mono, 12.0f));
+        g.setColour (colour::inkFaint);
+        g.drawText (inner, bottom.translated (0.0f, -20.0f), juce::Justification::centredLeft);
+    }
     g.setFont (fonts->small (*this, fonts->light, 13.0f, 0.02f));
     g.setColour (colour::inkFaint);
     const auto count = juce::String (flydata::neurons / 1000) + "," + juce::String (flydata::neurons % 1000).paddedLeft ('0', 3);
