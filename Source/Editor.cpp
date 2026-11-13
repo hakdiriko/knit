@@ -83,9 +83,10 @@ void DendriteEditor::setFlyOpen (bool open)
     // the window grows (or shrinks) by the drawer at the scale it is shown at
     const float scale = std::min ((float) getWidth() / (float) designWidth, (float) getHeight() / (float) designTall());
     const int by = juce::roundToInt ((float) drawerHeight * scale);
+    const int width = getWidth(), height = getHeight(); // before the new limits can stretch it
     flyBrain.setOpen (open);
     setResizeLimits (designWidth * 3 / 4, designTall() * 3 / 4, 7680, 4320);
-    setSize (getWidth(), std::max (getHeight() + (open ? by : -by), designTall() * 3 / 4));
+    setSize (width, std::max (height + (open ? by : -by), designTall() * 3 / 4));
     resized();
 }
 

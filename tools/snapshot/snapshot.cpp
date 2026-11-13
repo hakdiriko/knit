@@ -13,6 +13,7 @@
 //   DENDRITE_FIRST_LIGHT=1             play first light from the start
 //   DENDRITE_STRIP_HOVER=t0,t1         the mouse rests in the strip from t0 to t1 (the tape shows)
 //   DENDRITE_KEEP_HOLD=t0,t1           the last itch's ember lamp is held from t0 to t1 (the ruler opens)
+//   DENDRITE_FLY_OPEN=t                the fly's drawer opens at t seconds
 //   DENDRITE_KEEP_OUT=dir              at the end, write the last finished itch as keep would drag it
 #include <juce_audio_formats/juce_audio_formats.h>
 #include "Processor.h"
