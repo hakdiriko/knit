@@ -10,6 +10,10 @@
 - **The itch knob is how awake it is.** Off sleeps. Toward ¼ it is wide awake and recovers quickly; toward 8 it is drowsy. The five heads step aside (the code stays).
 - **Watch it think.** Its brain lives where the head lamps were: every neuron at its place, flashing red as it fires and drying to grey. Click it and the window opens a drawer under the strip with the brain large, where its ears, eyes, giant fiber and grooming sit, and one line saying what it is doing. Click again to close.
 - It costs about 5% of one CPU core.
+- Window: in fullscreen the fly's drawer opens and closes without leaving fullscreen.
+- Window: the light keeps up with the mouse while you drag it.
+- Window: keep's tape and the itch controls stretch with a wider window.
+- Window: background growth spreads like a rhizome instead of knotting and stacking.
 - `tools/fly/`: the whole-brain simulation, the cut and the export (`export.py` writes `Source/dsp/FlyData.cpp`). The hand (`--hand`) stays in the renderer for comparison; `--heads` renders the 2.0a itch.
 
 ## 2.0.0 (2.0a: the creature)
