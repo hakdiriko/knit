@@ -12,6 +12,8 @@
 //                                      interleaved left/right per head, for levelling them)
 //                [--repeat N]  (plays the input N times in a row: a loop that goes on)
 //                [--dice]  (1.2's itch: dice by song position, instead of the creature)
+//                [--hand]  (2.1 sketch: the itch as a motif on the echo's controls, not the heads)
+//                [--hand-log hand.csv]  (every 256 samples: the hand's touch on the echo)
 //                [--genome N]  (which creature; the plug-in draws one at random)
 //                [--loop-transport]  (with --repeat: the song position jumps back at each
 //                                     repeat, like Live's loop brace)
@@ -141,9 +143,9 @@ int main (int argc, char** argv)
     bool dry = true;
     double bpm = 120.0;
     bool playing = true;
-    std::string sweep, probe, itchLog;
+    std::string sweep, probe, itchLog, handLog;
     int repeat = 1;
-    bool dice = false, loopTransport = false;
+    bool dice = false, loopTransport = false, handMode = false;
     size_t onePass = 0;
     unsigned long long genome = 1;
     std::vector<std::pair<double, double>> throws;
@@ -163,6 +165,8 @@ int main (int argc, char** argv)
         else if (k == "--probe") probe = next();
         else if (k == "--repeat") repeat = std::max (1, std::stoi (next()));
         else if (k == "--dice") dice = true;
+        else if (k == "--hand") handMode = true;
+        else if (k == "--hand-log") handLog = next();
         else if (k == "--loop-transport") loopTransport = true;
         else if (k == "--genome") genome = std::stoull (next());
         else if (k == "--itch-log") itchLog = next();
@@ -203,6 +207,7 @@ int main (int argc, char** argv)
     static dendrite::Engine engine; // large: keep it off the stack
     engine.creature().beBorn (genome);
     engine.useDice (dice);
+    engine.useHand (handMode);
     engine.setControls (feed, space, false, itch, false);
     engine.prepare ((float) in.sampleRate);
     std::FILE* log = itchLog.empty() ? nullptr : std::fopen (itchLog.c_str(), "w");
@@ -214,6 +219,9 @@ int main (int argc, char** argv)
         std::fprintf (log, "\n");
     }
     int logged = 0;
+    std::FILE* hlog = handLog.empty() ? nullptr : std::fopen (handLog.c_str(), "w");
+    if (hlog)
+        std::fprintf (hlog, "seconds,env,speed,feed,space,band,bandHz,freeze\n");
 
     Audio out = in;
     const int block = probe.empty() ? 256 : 1;
@@ -260,6 +268,12 @@ int main (int argc, char** argv)
                 std::fprintf (log, ",%.4f", v);
             std::fprintf (log, "\n");
         }
+        if (hlog)
+        {
+            const auto& t = engine.itchHand().now();
+            std::fprintf (hlog, "%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.1f,%.4f\n", seconds, engine.itchHand().envelope(), t.speed,
+                          t.feed, t.space, t.band, t.bandHz, t.freeze);
+        }
         if (probeFile)
         {
             const auto& heads = engine.itchHeads();
@@ -274,6 +288,8 @@ int main (int argc, char** argv)
     std::fprintf (stderr, "itches: %d (at%s s)\n", itches, itchTimes.c_str());
     std::fprintf (stderr, "rendered %.1f s in %.2f s (%.0fx real time)\n", (double) total / in.sampleRate, elapsed,
                   (double) total / in.sampleRate / elapsed);
+    if (hlog)
+        std::fclose (hlog);
     if (log)
         std::fclose (log);
     if (std::string (argv[2]) == "-")

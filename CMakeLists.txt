@@ -70,6 +70,7 @@ target_sources(dendrite PRIVATE
     Source/dsp/Itch.cpp
     Source/dsp/Engine.cpp
     Source/dsp/Creature.cpp
+    Source/dsp/Hand.cpp
     Source/keep/Keep.cpp)
 
 target_include_directories(dendrite PRIVATE Source)
@@ -92,7 +93,7 @@ target_link_libraries(dendrite
 # Local tools (not built in CI): the offline renderer and a window snapshot.
 option(DENDRITE_TOOLS "Build the offline renderer and the window snapshot tool" OFF)
 if(DENDRITE_TOOLS)
-    add_executable(dendrite_render tools/render/render.cpp Source/dsp/Echo.cpp Source/dsp/Itch.cpp Source/dsp/Engine.cpp Source/dsp/Creature.cpp)
+    add_executable(dendrite_render tools/render/render.cpp Source/dsp/Echo.cpp Source/dsp/Itch.cpp Source/dsp/Engine.cpp Source/dsp/Creature.cpp Source/dsp/Hand.cpp)
     target_include_directories(dendrite_render PRIVATE Source)
 
     juce_add_console_app(dendrite_snapshot PRODUCT_NAME "dendrite_snapshot")
@@ -111,6 +112,7 @@ if(DENDRITE_TOOLS)
         Source/dsp/Itch.cpp
         Source/dsp/Engine.cpp
         Source/dsp/Creature.cpp
+        Source/dsp/Hand.cpp
         Source/keep/Keep.cpp)
     target_include_directories(dendrite_snapshot PRIVATE Source)
     target_compile_definitions(dendrite_snapshot PRIVATE

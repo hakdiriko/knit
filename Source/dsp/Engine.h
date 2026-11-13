@@ -5,6 +5,7 @@
 #include "Echo.h"
 #include "Itch.h"
 #include "Creature.h"
+#include "Hand.h"
 
 namespace dendrite
 {
@@ -68,6 +69,10 @@ public:
     const Creature& creature() const noexcept { return mind; }
     // For A/B renders only: 1.2's dice itch instead of the creature.
     void useDice (bool dice) noexcept { diceItch = dice; }
+    // 2.1 sketch: the itch as a motif (the hand moves the echo's own controls) instead of
+    // the heads. Off by default until Hakan hears it.
+    void useHand (bool on) noexcept { handItch = on; }
+    const Hand& itchHand() const noexcept { return hand; }
 
     // The last itch, for the offline tools: how many so far, what it was, how bored the
     // frame was and the threshold it passed.
@@ -99,7 +104,10 @@ private:
     Listener listener;
     Heads heads;
     Creature mind;
-    bool diceItch = false;
+    bool diceItch = false, handItch = false;
+    Hand hand;
+    uint64_t handGenome = 0;
+    float emptyBandHz() const noexcept;
     ItchRecord record;
     float feedNow = 0.5f, spaceNow = 0.4f, stepOnset = 0.0f;
     bool throwWasHeld = false, throwStarted = false;

@@ -24,6 +24,7 @@
 // the loop from outgrowing what was played into it, and a deep held throw.
 #pragma once
 
+#include "Hand.h"
 #include "Tools.h"
 
 namespace dendrite
@@ -41,6 +42,10 @@ public:
         spaceTarget = clamp01 (newSpace);
         held = throwHeld;
     }
+
+    // The hand (2.1): a motif's touch on the controls, added on top of feed, space and the
+    // throw, never written into them. A neutral Touch leaves the echo exactly as it was.
+    void setTouch (const Touch& t) noexcept { touchNow = t; }
 
     // The itch's third head turns the whole space; the turn heals over about a minute.
     void turnSpace (float radians) noexcept { turnTarget += radians; }
@@ -124,6 +129,10 @@ private:
     OnePole tiltM, tiltS;
     Wander wowA, wowB, flutter, breathWander, thetaWander, sideDrift;
     Dice dice;
+
+    // the hand's touch: the band it plays the loop through
+    Touch touchNow;
+    Biquad bandM, bandS;
 
     // controls
     float feedTarget = 0.5f, spaceTarget = 0.4f, feed = 0.5f, space = 0.4f;

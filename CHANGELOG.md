@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1 (in progress: the hand)
+
+Nothing in the plug-in sounds different yet: the hand is built but switched off, and only the offline renderer can turn it on (`--hand`).
+
+- **The hand.** When the creature is bored, it takes dendrite's own controls for one to four bars and moves several of them as one gesture: tape speed, feed, space, a narrow band in the loop placed where the music is emptiest, and freeze. It throws the moment in as it starts and rides the return up while it writes. Then it hands the controls back exactly where they were. Your knobs and automation are never touched.
+- **Its handwriting.** Each creature grows four coupled oscillators from its genome (after Hollerbach's 1981 model of handwriting). Which controls move together, how sharp the curves are and how far it reaches are its own. Its mood picks the stroke sizes and starting points, and the hits pull the strokes into step while it writes.
+
 ## 2.0.0 (2.0a: the creature)
 
 **The itch has a mind of its own.** Every dendrite is born a small creature (32 neurons) that lives inside the itch from the moment it loads. It takes one breath per sixteenth note, hears the music, feels your hand and breathes on three slow clocks of its own. The echo, the breathing and the throw are unchanged.

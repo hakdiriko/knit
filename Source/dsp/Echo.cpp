@@ -149,6 +149,9 @@ void Echo::prepare (float newSampleRate)
 void Echo::reset()
 {
     loopM.clear();
+    bandM.clear();
+    bandS.clear();
+    touchNow = Touch {};
     loopS.clear();
     tapeM.clear();
     tapeS.clear();
@@ -187,24 +190,25 @@ void Echo::reset()
 
 void Echo::updatePaths() noexcept
 {
-    pSend = sendPath (feed);
-    pDotted = dottedPath (feed);
-    pQuarter = quarterPath (feed);
-    pReturn = returnPath (feed);
-    pDuck = duckPath (feed);
-    pCeiling = ceilingPath (feed);
-    pDrive = drivePath (feed);
+    const float feedUse = clamp01 (feed + touchNow.feed), spaceUse = clamp01 (space + touchNow.space);
+    pSend = sendPath (feedUse);
+    pDotted = dottedPath (feedUse);
+    pQuarter = quarterPath (feedUse);
+    pReturn = returnPath (feedUse);
+    pDuck = duckPath (feedUse);
+    pCeiling = ceilingPath (feedUse);
+    pDrive = drivePath (feedUse);
 
-    pInWidth = inWidthPath (space);
-    pPan = panPath (space);
-    pSpread = spreadPath (space);
-    pDiffuse = diffusePath (space);
-    pDiffuseMix = diffuseMixPath (space);
-    pShift = shiftPath (space);
-    pSideOut = sideOutPath (space);
-    pTrim = trimPath (space);
-    pCross = crossPath (space);
-    pLoopCap = loopCapPath (feed);
+    pInWidth = inWidthPath (spaceUse);
+    pPan = panPath (spaceUse);
+    pSpread = spreadPath (spaceUse);
+    pDiffuse = diffusePath (spaceUse);
+    pDiffuseMix = diffuseMixPath (spaceUse);
+    pShift = shiftPath (spaceUse);
+    pSideOut = sideOutPath (spaceUse);
+    pTrim = trimPath (spaceUse);
+    pCross = crossPath (spaceUse);
+    pLoopCap = loopCapPath (feedUse);
 
     // after a throw, the feedback ride falls back over about two bars
     cThrowDown = approach (std::max (0.3f, 32.0f * sixteenth / sampleRate) * 0.5f, sampleRate);
@@ -237,6 +241,7 @@ Echo::View Echo::view() const noexcept
 
 void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws) noexcept
 {
+    const bool holding = held || touchNow.throwing;
     // controls glide; the paths follow every 16 samples
     feed += cControl * (feedTarget - feed);
     space += cControl * (spaceTarget - space);
@@ -283,8 +288,8 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     }
 
     // the throw: the send opens at once; the feedback ride and the launch linger
-    heldSend += (held ? cHeldUp : cHeldDown) * ((held ? 1.0f : 0.0f) - heldSend);
-    if (held)
+    heldSend += (holding ? cHeldUp : cHeldDown) * ((holding ? 1.0f : 0.0f) - heldSend);
+    if (holding)
     {
         throwEnv += cHeldUp * (1.0f - throwEnv);
         throwTail += cHeldUp * (1.0f - throwTail);
@@ -294,13 +299,13 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
         throwEnv -= cThrowDown * throwEnv;
         throwTail -= cThrowTail * throwTail;
     }
-    if (held && ! wasHeld)
+    if (holding && ! wasHeld)
     {
         launchTarget = dice.sign() * dice.range (0.7f, 1.5f);
         onsetPending = 1.0f;
         onsetThrown = true;
     }
-    wasHeld = held;
+    wasHeld = holding;
     // the runaway: a throw held at endless may grow past what was played, into a howl the
     // tape itself holds; it falls back like any throw when you let go
     const float runTarget = held ? clamp01 ((feed - 0.87f) / 0.1f) : 0.0f;
@@ -309,7 +314,7 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     launchTarget -= cTurnHeal * 4.0f * launchTarget; // heals over ~10 s
     turn += cTurn * (turnTarget - turn);
     turnTarget -= cTurnHeal * turnTarget;            // heals over ~a minute
-    const float send = std::max (pSend, 1.15f * heldSend);
+    const float send = std::max (pSend, 1.15f * heldSend) * (1.0f - touchNow.freeze);
 
     // breathing: lean late when the part is busy, and swell on its own
     const float busy = rmsLong > 1.0e-14f ? std::clamp (std::sqrt (rmsShort / rmsLong) - 0.7f, 0.0f, 1.0f) : 0.0f;
@@ -334,11 +339,17 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     }
     gainDottedNow = std::min (0.9f + 0.12f * runaway, std::max (gd + (0.12f + 0.2f * runaway) * throwEnv, 0.72f * throwTail));
     gainQuarterNow = std::min (0.66f + 0.1f * runaway, std::max (gq + (0.1f + 0.15f * runaway) * throwEnv, 0.5f * throwTail));
+    // the hand's freeze: the loop holds what it has (the ceiling below keeps it from growing)
+    gainDottedNow = lerp (gainDottedNow, 0.62f, touchNow.freeze);
+    gainQuarterNow = lerp (gainQuarterNow, 0.42f, touchNow.freeze);
 
     // the heads
     const float onBeat = tapeM.latency() - 2.0f;
-    const float dDelay = dottedSm - onBeat + leanSamples + wobbleA;
-    const float qDelay = quarterSm - onBeat + 1.3f * leanSamples + wobbleB;
+    // the hand's tape speed: faster tape, closer heads (the repeats rise); never past the loop
+    const float maxDelay = 4.3f * sampleRate;
+    const float speed = std::clamp (touchNow.speed, 0.4f, 2.5f);
+    const float dDelay = std::min (dottedSm / speed - onBeat + leanSamples + wobbleA, maxDelay);
+    const float qDelay = std::min (quarterSm / speed - onBeat + 1.3f * leanSamples + wobbleB, maxDelay);
     const float dM = loopM.read (dDelay), qM = loopM.read (qDelay);
     const float dS = loopS.read (dDelay), qS = loopS.read (qDelay);
 
@@ -346,6 +357,19 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     // space the quarter keeps the Side too, so the Side grows with every pass.
     float fbM = gainDottedNow * dM + gainQuarterNow * qM;
     float fbS = gainDottedNow * dS + pCross * gainQuarterNow * qS;
+
+    // the hand's band: the loop passes through a narrow band, so the repeats thin into it
+    if ((count & 15) == 0)
+    {
+        bandM.bandpass (std::min (touchNow.bandHz, 0.4f * sampleRate), 5.0f, sampleRate);
+        bandS.bandpass (std::min (touchNow.bandHz, 0.4f * sampleRate), 5.0f, sampleRate);
+    }
+    {
+        const float bm = bandM.process (fbM), bs = bandS.process (fbS);
+        const float amount = clamp01 (touchNow.band);
+        fbM = lerp (fbM, 1.4f * bm, amount);
+        fbS = lerp (fbS, 1.4f * bs, amount);
+    }
 
     // The loop may never grow louder than what was played into it: past a share of the
     // recent input peaks the feedback eases off (Mid and Side each on their own, so the
@@ -400,6 +424,7 @@ void Echo::process (float xm, float xs, float im, float is, float& wm, float& ws
     // a throw always comes back, even with feed all the way down: the dub engineer's closed send
     const float returnNow = std::max (pReturn, 1.2f * std::sqrt (throwTail));
     level *= returnNow * (1.0f + 0.2f * fillAmount) * (1.0f + 0.35f * throwEnv);
+    level *= touchNow.lift; // the hand rides the return
     levelNow = level;
     if ((count & 15) == 0)
     {

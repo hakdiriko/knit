@@ -36,6 +36,7 @@ void Engine::prepare (float sampleRate)
     listener.prepare (sr);
     heads.prepare (sr);
     mind.rest();
+    hand.prepare (sampleRate);
 
     attackFilter.highpass (150.0f, 0.7071f, sr);
     fastUp = coefFor (0.0003f, sr);
@@ -56,6 +57,7 @@ void Engine::reset()
     listener.reset();
     heads.reset();
     mind.rest(); // the creature keeps its life
+    hand.rest();
     stepOnset = 0.0f;
     throwStarted = false;
     attackFilter.clear();
@@ -145,7 +147,24 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
                                                   : mind.itch (beat, itchChoice);
                     const float intensity = 0.45f + 0.18f * (float) (boredFrames - 1) + 1.2f * (mean - enough) + gesture.lift;
                     const double gapBeats = std::clamp (frameBeats / 4.0, 0.5, 2.0);
-                    heads.fire (gesture, intensity, gapBeats * samplesPerBeat, samplesPerBeat, barBeats * samplesPerBeat);
+                    if (handItch)
+                    {
+                        // the motif: one gesture on the desk, a bar to four bars long
+                        if (handGenome != mind.life().genome)
+                        {
+                            handGenome = mind.life().genome;
+                            hand.grow (handGenome);
+                        }
+                        const double motifBeats = std::clamp (frameBeats, barBeats, 4.0 * barBeats);
+                        const float reach = clamp01 (0.3f + 0.45f * mind.arousal() + 0.25f * mind.familiarity()
+                                                     + 0.3f * (intensity - 0.45f));
+                        hand.start (gesture, motifBeats * samplesPerBeat, barBeats * samplesPerBeat, emptyBandHz(), reach,
+                                    mind.brightness());
+                    }
+                    else
+                    {
+                        heads.fire (gesture, intensity, gapBeats * samplesPerBeat, samplesPerBeat, barBeats * samplesPerBeat);
+                    }
                     echo.setTurnHeal (gesture.heal);
                     record.count += 1;
                     record.gesture = gesture;
@@ -170,11 +189,11 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
         // Relief: a frame counts only if it began with the heads quiet, and (for frames
         // shorter than two bars) at least two bars after they fell quiet, so a short
         // length stays an event and doesn't turn into wallpaper.
-        frameStartedIdle = ! heads.busy()
+        frameStartedIdle = ! heads.busy() && ! hand.busy()
                            && (double) quietFor >= std::max (0.0, 2.0 * barBeats - frameBeats) * samplesPerBeat;
     }
     beat += beatsPerSample;
-    quietFor = heads.busy() ? 0 : quietFor + 1;
+    quietFor = heads.busy() || hand.busy() ? 0 : quietFor + 1;
 }
 
 void Engine::process (float* left, float* right, int numSamples, const HostTime& time) noexcept
@@ -211,6 +230,9 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         heads.process (hm, hs, tm, ts, turn);
         if (std::abs (turn) > 0.0f)
             echo.turnSpace (turn);
+
+        if (handItch)
+            echo.setTouch (hand.process (attack));
 
         float wm = 0.0f, ws = 0.0f;
         echo.process (mid, side, tm, ts, wm, ws);
@@ -260,7 +282,7 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
     state.repetition = listener.repetition();
     state.frameProgress = (float) (std::fmod (std::max (0.0, beat), frameBeats) / frameBeats);
     state.boredom = std::min (1.0f, (float) boredFrames / 3.0f);
-    state.itching = heads.busy();
+    state.itching = heads.busy() || hand.busy();
     for (int h = 0; h < Heads::count; ++h)
         state.lamps[(size_t) h] = heads.lamp (h);
     state.bpm = bpm;
@@ -269,5 +291,30 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         state.neurons[(size_t) i] = mind.firing (i);
     state.arousal = mind.arousal();
     state.familiarity = mind.familiarity();
+}
+} // namespace dendrite
+
+namespace dendrite
+{
+// The band the music leaves emptiest (of the Listener's 250 Hz .. 4.5 kHz bands): the
+// quietest against its neighbours over the creature's long memory of the bands.
+float Engine::emptyBandHz() const noexcept
+{
+    static constexpr float centres[] = { 90.0f, 250.0f, 700.0f, 1800.0f, 4500.0f, 10000.0f };
+    const auto& life = mind.life();
+    if (life.bandMeanReady == 0)
+        return 1800.0f;
+    int best = 3;
+    float lowest = 1.0e9f;
+    for (int b = 1; b <= 4; ++b)
+    {
+        const float dip = life.bandMean[b] - 0.5f * (life.bandMean[b - 1] + life.bandMean[b + 1]);
+        if (dip < lowest)
+        {
+            lowest = dip;
+            best = b;
+        }
+    }
+    return centres[best];
 }
 } // namespace dendrite
