@@ -80,14 +80,43 @@ void DendriteEditor::setFlyOpen (bool open)
 {
     if (open == flyBrain.isOpen())
         return;
-    // the window grows (or shrinks) by the drawer at the scale it is shown at
+    // a window with room on screen grows by the drawer (and shrinks back on closing); a window
+    // that is maximised, fullscreen or simply too tall to grow opens the drawer inside itself,
+    // so the host's maximise/fullscreen is never undone by asking for a new size
     const float scale = std::min ((float) getWidth() / (float) designWidth, (float) getHeight() / (float) designTall());
     const int by = juce::roundToInt ((float) drawerHeight * scale);
     const int width = getWidth(), height = getHeight(); // before the new limits can stretch it
+    bool resize = false;
+    if (open)
+        resize = grewForDrawer = ! fillsScreen (height + by);
+    else
+        resize = grewForDrawer && ! fillsScreen (height);
+    if (! open)
+        grewForDrawer = false;
+
     flyBrain.setOpen (open);
-    setResizeLimits (designWidth * 3 / 4, designTall() * 3 / 4, 7680, 4320);
-    setSize (width, std::max (height + (open ? by : -by), designTall() * 3 / 4));
+    if (resize)
+    {
+        setResizeLimits (designWidth * 3 / 4, designTall() * 3 / 4, 7680, 4320);
+        setSize (width, std::max (height + (open ? by : -by), designTall() * 3 / 4));
+    }
+    else
+    {
+        // the limits only loosen here: tightening them would make the host resize the window
+        setResizeLimits (designWidth * 3 / 4, std::min (designTall() * 3 / 4, height), 7680, 4320);
+    }
     resized();
+}
+
+bool DendriteEditor::fillsScreen (int heightWanted) const
+{
+    // the display the window is on, in the same logical pixels as the window
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* display = displays.getDisplayForRect (getScreenBounds());
+    if (display == nullptr)
+        return false;
+    const auto area = display->userArea;
+    return getWidth() >= area.getWidth() * 9 / 10 || heightWanted > area.getHeight() * 92 / 100;
 }
 
 void DendriteEditor::timerCallback()

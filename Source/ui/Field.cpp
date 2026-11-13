@@ -94,8 +94,9 @@ namespace
 
 Field::Field (DendriteProcessor& p)
     : processor (p),
-      feedLink (*p.params.getParameter ("feed"), [this] (float v) { realFeed = v; if (! ghostOn) feed = v; }),
-      spaceLink (*p.params.getParameter ("space"), [this] (float v) { realSpace = v; if (! ghostOn) space = v; }),
+      // while the hand holds the light, the hand is the truth: a late echo from the host is ignored
+      feedLink (*p.params.getParameter ("feed"), [this] (float v) { realFeed = v; if (! ghostOn && ! grabbedLight) feed = v; }),
+      spaceLink (*p.params.getParameter ("space"), [this] (float v) { realSpace = v; if (! ghostOn && ! grabbedLight) space = v; }),
       throwLink (*p.params.getParameter ("throw"), [this] (float v) { throwHeld = v > 0.5f; }),
       random (juce::Random::getSystemRandom().nextInt64())
 {
@@ -525,7 +526,21 @@ void Field::tickSynapses (float dt)
                         taken = taken || (y.sa == sa && y.sb == sb) || (y.sa == sb && y.sb == sa);
                     if (taken)
                         break;
-                    synapses.push_back ({ sa, fa, sb, fb, s.born, o.born, now, 2.0f, 18.0f + 30.0f * random.nextFloat(), 0.0f, 0.6f });
+                    // rhizome nodes, not knots: one place joins at a time (none within 36 px of another
+                    // join, and at most two joins on a strand), and the join keeps the gap it found
+                    bool crowded = false;
+                    int onA = 0, onB = 0;
+                    for (const auto& y : synapses)
+                    {
+                        const auto& ya = fibres[(size_t) (strands[(size_t) y.sa].first + y.fa)];
+                        crowded = crowded || ya.p.getDistanceFrom (f.p) < 36.0f;
+                        onA += (y.sa == sa || y.sb == sa) ? 1 : 0;
+                        onB += (y.sa == sb || y.sb == sb) ? 1 : 0;
+                    }
+                    if (crowded || onA >= 2 || onB >= 2)
+                        break;
+                    const float rest = std::max (4.0f, g.p.getDistanceFrom (f.p));
+                    synapses.push_back ({ sa, fa, sb, fb, s.born, o.born, now, rest, 18.0f + 30.0f * random.nextFloat(), 0.0f, 0.6f });
                     if (synapses.size() >= 24)
                         return;
                     break;
@@ -823,6 +838,20 @@ void Field::spawnRoot (float level, Kind kind, double t)
     const float a = -0.5f * pi + 0.55f * theta + (random.nextFloat() - 0.5f) * 1.6f * pi;
     root.p = root.home = lp;
     root.dir = { std::cos (a), std::sin (a) };
+    {
+        // set off where the last hits have not already grown
+        int least = crowdAt (lp + root.dir * 30.0f, -1, 18.0f);
+        for (const float turn : { 0.7f, -0.7f, 1.4f, -1.4f, 2.4f, -2.4f })
+        {
+            const auto d2 = rotated (root.dir, turn);
+            const int n = crowdAt (lp + d2 * 30.0f, -1, 18.0f);
+            if (n + 1 < least)
+            {
+                least = n;
+                root.dir = d2;
+            }
+        }
+    }
     root.parent = tethered;
     root.level = std::clamp (level, 0.25f, 1.0f) * (kind == throwKind ? 1.3f : 1.0f);
     root.life = (1.1f + 3.2f * feed) * (kind == throwKind ? 1.6f : 1.0f) * (0.8f + 0.45f * random.nextFloat());
@@ -899,7 +928,29 @@ void Field::spawnFrom (int parentIndex, bool quarter, double t)
         if (twig)
             length = 3.0f + 7.0f * random.nextFloat();
         else
+        {
             dir = colonise (parent, dir, length);
+            // a rhizome spreads: if where it wants to go is already full, it turns to the open side
+            const int here = crowdAt (parent.p + dir * length, parentIndex, 14.0f);
+            if (here > 2)
+            {
+                auto best = dir;
+                int least = here;
+                for (const float turn : { 0.45f, -0.45f, 0.9f, -0.9f, 1.4f, -1.4f })
+                {
+                    const auto d2 = rotated (dir, turn);
+                    const int n = crowdAt (parent.p + d2 * length, parentIndex, 14.0f) + (std::abs (turn) > 1.0f ? 1 : 0);
+                    if (n < least)
+                    {
+                        least = n;
+                        best = d2;
+                    }
+                }
+                if (least > 4)
+                    return -1; // nowhere open: a rhizome does not grow into soil that is already full
+                dir = best;
+            }
+        }
 
         if (! getLocalBounds().toFloat().expanded (20.0f).contains (parent.p + dir * length))
             return -1; // it would grow out of the field
@@ -1165,6 +1216,7 @@ void Field::simulate (float dt)
             flows[i] = medium.velocity (joints[i].p) + (joints[i].kind == ghostKind ? juce::Point<float> (0.0f, -14.0f) : juce::Point<float>());
 
     tickTremors();
+    buildCrowd();
 
     const float h = dt / (float) substeps;
     const float carryTissue = 1.0f - std::exp (-3.0f * h), carryGrowth = 1.0f - std::exp (-5.0f * h);
@@ -1263,6 +1315,80 @@ void Field::simulate (float dt)
         for (auto& j : joints)
             if (j.alive)
                 j.v = clampSpeed ((j.p - j.prev) * inv);
+    }
+    keepApart();
+}
+
+void Field::buildCrowd()
+{
+    crowdCols = std::max (1, (int) std::ceil ((float) getWidth() / crowdCell) + 2);
+    crowdRows = std::max (1, (int) std::ceil ((float) getHeight() / crowdCell) + 2);
+    crowdHead.assign ((size_t) (crowdCols * crowdRows), -1);
+    crowdNext.assign (joints.size(), -1);
+    for (size_t i = 0; i < joints.size(); ++i)
+    {
+        const auto& j = joints[i];
+        if (! j.alive)
+            continue;
+        const int cx = std::clamp ((int) (j.p.x / crowdCell) + 1, 0, crowdCols - 1);
+        const int cy = std::clamp ((int) (j.p.y / crowdCell) + 1, 0, crowdRows - 1);
+        auto& head = crowdHead[(size_t) (cy * crowdCols + cx)];
+        crowdNext[i] = head;
+        head = (int) i;
+    }
+}
+
+int Field::crowdAt (juce::Point<float> p, int ownJoint, float radius) const
+{
+    // joints near p, not counting the limb it grows from (the joint and its parent)
+    if (crowdHead.empty())
+        return 0;
+    const int own = ownJoint, ownParent = ownJoint >= 0 && ownJoint < (int) joints.size() ? joints[(size_t) ownJoint].parent : -9;
+    const int cx = (int) (p.x / crowdCell) + 1, cy = (int) (p.y / crowdCell) + 1;
+    const int span = (int) std::ceil (radius / crowdCell);
+    int n = 0;
+    for (int y = std::max (0, cy - span); y <= std::min (crowdRows - 1, cy + span); ++y)
+        for (int x = std::max (0, cx - span); x <= std::min (crowdCols - 1, cx + span); ++x)
+            for (int i = crowdHead[(size_t) (y * crowdCols + x)]; i >= 0; i = crowdNext[(size_t) i])
+                if (i != own && i != ownParent && i < (int) joints.size() && joints[(size_t) i].alive
+                    && joints[(size_t) i].p.getDistanceFrom (p) < radius)
+                    ++n;
+    return n;
+}
+
+void Field::keepApart()
+{
+    // two limbs that are not joined keep a small gap, so lines run side by side or cross,
+    // but never fuse into one thick cord
+    constexpr float gap = 5.0f, give = 0.3f;
+    if (crowdHead.empty())
+        return;
+    for (size_t i = 0; i < joints.size() && i < crowdNext.size(); ++i)
+    {
+        auto& a = joints[i];
+        if (! a.alive || a.parent == tethered)
+            continue;
+        const int cx = std::clamp ((int) (a.p.x / crowdCell) + 1, 0, crowdCols - 1);
+        const int cy = std::clamp ((int) (a.p.y / crowdCell) + 1, 0, crowdRows - 1);
+        for (int y = std::max (0, cy - 1); y <= std::min (crowdRows - 1, cy + 1); ++y)
+            for (int x = std::max (0, cx - 1); x <= std::min (crowdCols - 1, cx + 1); ++x)
+                for (int k = crowdHead[(size_t) (y * crowdCols + x)]; k >= 0; k = crowdNext[(size_t) k])
+                {
+                    if ((size_t) k <= i)
+                        continue;
+                    auto& b = joints[(size_t) k];
+                    if (! b.alive || b.parent == tethered || a.parent == k || b.parent == (int) i)
+                        continue;
+                    if (a.parent >= 0 && a.parent == b.parent)
+                        continue; // siblings fork from one point: they start together
+                    const auto d = b.p - a.p;
+                    const float dist = d.getDistanceFromOrigin();
+                    if (dist >= gap || dist < 1.0e-4f)
+                        continue;
+                    const auto push = d * (give * 0.5f * (gap - dist) / dist);
+                    a.p -= push;
+                    b.p += push;
+                }
     }
 }
 
@@ -1750,6 +1876,9 @@ void Field::mouseDown (const juce::MouseEvent& e)
 
     dragging = true;
     grabbedLight = true;
+    grabMouse = e.position;
+    grabUnit = pointUnit();
+    grabFine = e.mods.isShiftDown();
     feedLink.beginGesture();
     spaceLink.beginGesture();
 }
@@ -1763,11 +1892,19 @@ void Field::mouseDrag (const juce::MouseEvent& e)
     }
     if (! grabbedLight)
         return;
+    // measured from where the drag began, not added up frame by frame: the host echoes each
+    // value back a moment late, and adding to that stale value made the light lag the mouse
     const auto r = inner();
-    const float fine = e.mods.isShiftDown() ? 0.2f : 1.0f;
-    const auto delta = e.position - lastMouse;
+    if (e.mods.isShiftDown() != grabFine) // shift pressed or let go mid-drag: start again from here
+    {
+        grabFine = e.mods.isShiftDown();
+        grabMouse = e.position;
+        grabUnit = pointUnit();
+    }
+    const float fine = grabFine ? 0.2f : 1.0f;
+    const auto moved = e.position - grabMouse;
     lastMouse = e.position;
-    auto unit = pointUnit() + juce::Point<float> (delta.x / r.getWidth() * fine, delta.y / r.getHeight() * fine);
+    const auto unit = grabUnit + juce::Point<float> (moved.x / r.getWidth() * fine, moved.y / r.getHeight() * fine);
     setFromUnit ({ std::clamp (unit.x, 0.0f, 1.0f), std::clamp (unit.y, 0.0f, 1.0f) });
 }
 

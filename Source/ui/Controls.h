@@ -33,7 +33,8 @@ public:
     void setHeadsArea (juce::Rectangle<float> r) { headsArea = r; }
     // the fly is the itch: its brain takes the heads' place, so their lamps are not drawn
     void setFly (bool on) { fly = on; repaint(); }
-    static constexpr float dotsLeft = 240.0f;
+    // 240 at 880 wide; a wider window keeps the itch group centred in the room it gains
+    float dotsLeft() const { return 240.0f + 0.5f * std::max (0.0f, (float) getWidth() - 880.0f); }
 
     // how much the strip is showing itself (the mouse is in it): the tape above follows it
     float getReveal() const noexcept { return reveal; }

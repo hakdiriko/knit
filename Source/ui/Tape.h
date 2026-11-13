@@ -42,7 +42,8 @@ public:
     // first light: show the tape and a ruler over the last itch without a mouse
     void setGhost (bool on, float alpha = 0.0f);
 
-    static constexpr float rulerHeight = 58.0f, bandHeight = 14.0f, left = 30.0f, right = 850.0f;
+    static constexpr float rulerHeight = 58.0f, bandHeight = 14.0f, left = 30.0f;
+    float right() const { return std::max (left + 100.0f, (float) getWidth() - 30.0f); } // 850 at 880 wide: the tape spans the window
 
 private:
     float lineY() const { return rulerHeight + 6.0f; }

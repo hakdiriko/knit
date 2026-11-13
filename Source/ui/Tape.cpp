@@ -30,13 +30,13 @@ KeepTape::KeepTape (DendriteProcessor& p) : processor (p)
 float KeepTape::xOf (int64_t frame) const
 {
     const auto oldest = written - capacity;
-    return left + (float) ((double) (frame - oldest) / (double) capacity) * (right - left);
+    return left + (float) ((double) (frame - oldest) / (double) capacity) * (right() - left);
 }
 
 int64_t KeepTape::frameAt (float x) const
 {
     const auto oldest = written - capacity;
-    return oldest + (int64_t) ((double) (x - left) / (double) (right - left) * (double) capacity);
+    return oldest + (int64_t) ((double) (x - left) / (double) (right() - left) * (double) capacity);
 }
 
 bool KeepTape::hitTest (int, int y)
@@ -168,14 +168,14 @@ void KeepTape::paint (juce::Graphics& g)
 
     // the tape itself, and the bar lines on it
     g.setColour (colour::line2.withAlpha (0.9f * alpha));
-    g.drawLine (x0, y, right, y, 0.7f);
+    g.drawLine (x0, y, right(), y, 0.7f);
     const auto c = processor.keep.clock();
     if (c.frame > 0)
     {
         const double framesPerBar = processor.keep.sampleRate() * 60.0 / c.bpm * c.barBeats;
         const double lastBar = std::floor ((c.beat + 1.0e-3) / c.barBeats) * c.barBeats;
         double f = (double) c.frame - (c.beat - lastBar) / c.barBeats * framesPerBar;
-        const float spacing = (float) (framesPerBar / (double) capacity) * (right - left);
+        const float spacing = (float) (framesPerBar / (double) capacity) * (right() - left);
         if (spacing > 4.0f)
             for (int k = 0; f >= (double) std::max<int64_t> (0, oldest) && k < 2000; ++k, f -= framesPerBar)
             {
@@ -203,7 +203,7 @@ void KeepTape::paint (juce::Graphics& g)
 
     // now
     g.setColour (colour::ink.withAlpha (0.8f * alpha));
-    g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ right, y }));
+    g.fillEllipse (juce::Rectangle<float> (3.0f, 3.0f).withCentre ({ right(), y }));
 
     if (rulerAlpha > 0.01f && take)
         paintRuler (g);

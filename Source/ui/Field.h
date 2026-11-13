@@ -166,6 +166,14 @@ private:
     void spawnFrom (int parent, bool quarter, double now);
     void growHeads (double now);
     void simulate (float dt);
+    // rhizome, not a knot: where the growth already is (a grid of joints, rebuilt each frame),
+    // so new limbs turn towards open space and limbs of different branches keep a small gap
+    void buildCrowd();
+    int crowdAt (juce::Point<float> p, int ownJoint, float radius) const;
+    void keepApart();
+    std::vector<int> crowdHead, crowdNext;
+    int crowdCols = 0, crowdRows = 0;
+    static constexpr float crowdCell = 16.0f;
     void seedStrand (Strand&, double now, bool midLife);
     void tickSparks (double now, float dt);
     void tremor (juce::Point<float> origin, float strength, double at, bool shakes = true);
@@ -261,6 +269,8 @@ private:
 
     juce::Image glowWhite, glowRed;
     juce::Point<float> lastLight, lightVelocity, lastMouse, touch;
+    juce::Point<float> grabMouse, grabUnit; // where a drag of the light began (field px, unit)
+    bool grabFine = false;
     bool dragging = false, hovering = false, touching = false, throwHeld = false, grabbedLight = false;
     float labelAlpha = 0.0f, pointGlow = 0.0f, touchGlow = 0.0f, throwGlow = 0.0f, itchLit = 0.0f;
 };

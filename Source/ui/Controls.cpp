@@ -149,7 +149,7 @@ int ItchStrip::lampAt (juce::Point<float> p) const
 
 juce::Rectangle<float> ItchStrip::dotsArea() const
 {
-    return { dotsLeft, 0.0f, 12.0f * 22.0f, (float) getHeight() };
+    return { dotsLeft(), 0.0f, 12.0f * 22.0f, (float) getHeight() };
 }
 
 juce::Point<float> ItchStrip::dot (int k) const
@@ -181,7 +181,7 @@ void ItchStrip::paint (juce::Graphics& g)
 
     g.setColour (colour::redText.withAlpha (0.85f)); // the itch's things are the red ones
     g.setFont (fonts->small (*this, fonts->regular, 12.5f, 0.08f));
-    g.drawText ("itch", juce::Rectangle<float> (dotsLeft - 44.0f, y - 9.0f, 40.0f, 18.0f), juce::Justification::centredLeft);
+    g.drawText ("itch", juce::Rectangle<float> (dotsLeft() - 44.0f, y - 9.0f, 40.0f, 18.0f), juce::Justification::centredLeft);
 
     // the frame it listens through fills along the line, warmer as the music repeats
     const float x0 = dot (0).x, x1 = dot (cells - 1).x;
@@ -265,7 +265,7 @@ void ItchStrip::paint (juce::Graphics& g)
 juce::Rectangle<float> ItchStrip::timeArea() const
 {
     // two quiet words between the itch and the heads: how the repeats fall, and the dry
-    return { dotsLeft + 12.0f * 22.0f + 10.0f, dot (0).y - 17.0f, 64.0f, 15.0f };
+    return { dotsLeft() + 12.0f * 22.0f + 10.0f, dot (0).y - 17.0f, 64.0f, 15.0f };
 }
 
 juce::Rectangle<float> ItchStrip::dryArea() const

@@ -27,7 +27,7 @@ public:
     dendrite::ui::FirstLight& getFirstLight() { return firstLight; }
     dendrite::ui::ItchStrip& getItchStrip() { return itch; }
     dendrite::ui::FlyBrain& getFlyBrain() { return flyBrain; }
-    void setFlyOpen (bool open); // opens or closes the drawer (the window grows or shrinks by it)
+    void setFlyOpen (bool open); // opens or closes the drawer (the window grows or shrinks by it when there is room)
 
 private:
     void timerCallback() override;
@@ -52,6 +52,8 @@ private:
     dendrite::ui::ItchStrip itch;
     dendrite::ui::KeepTape tape;
     dendrite::ui::FlyBrain flyBrain;
+    bool fillsScreen (int heightWanted) const; // maximised/fullscreen, or no room on screen to grow
+    bool grewForDrawer = false; // the window grew when the drawer opened, so it shrinks back on closing
     int designTall() const noexcept { return designHeight + (flyBrain.isOpen() ? drawerHeight : 0); }
     dendrite::ui::FirstLight firstLight { field, itch, tape };
     bool firstLightChecked = false;
