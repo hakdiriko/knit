@@ -231,7 +231,9 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         if (std::abs (turn) > 0.0f)
             echo.turnSpace (turn);
 
-        if (handItch)
+        if (outsideOn)
+            echo.setTouch (outside);
+        else if (handItch)
             echo.setTouch (hand.process (attack));
 
         float wm = 0.0f, ws = 0.0f;

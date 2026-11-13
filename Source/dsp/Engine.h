@@ -73,6 +73,8 @@ public:
     // the heads. Off by default until Hakan hears it.
     void useHand (bool on) noexcept { handItch = on; }
     const Hand& itchHand() const noexcept { return hand; }
+    // Tools only: something outside (the fly sketch) writes the touch on the echo itself.
+    void touchFromOutside (bool on, const Touch& t = {}) noexcept { outsideOn = on; outside = t; }
 
     // The last itch, for the offline tools: how many so far, what it was, how bored the
     // frame was and the threshold it passed.
@@ -106,6 +108,8 @@ private:
     Creature mind;
     bool diceItch = false, handItch = false;
     Hand hand;
+    bool outsideOn = false;
+    Touch outside;
     uint64_t handGenome = 0;
     float emptyBandHz() const noexcept;
     ItchRecord record;

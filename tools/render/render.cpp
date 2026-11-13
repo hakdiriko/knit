@@ -13,12 +13,14 @@
 //                [--repeat N]  (plays the input N times in a row: a loop that goes on)
 //                [--dice]  (1.2's itch: dice by song position, instead of the creature)
 //                [--hand]  (2.1 sketch: the itch as a motif on the echo's controls, not the heads)
+//                [--touch touch.csv]  (sketch: seconds,speed,feed,space,band,bandHz,freeze,throwing,lift drive the echo; itch off)
 //                [--hand-log hand.csv]  (every 256 samples: the hand's touch on the echo)
 //                [--genome N]  (which creature; the plug-in draws one at random)
 //                [--loop-transport]  (with --repeat: the song position jumps back at each
 //                                     repeat, like Live's loop brace)
 //                [--itch-log itches.csv]  (one row per itch: when, heads, the 14 numbers)
 //                out.wav may be "-" to write nothing
+#include <array>
 #include "dsp/Engine.h"
 
 #include <chrono>
@@ -143,7 +145,7 @@ int main (int argc, char** argv)
     bool dry = true;
     double bpm = 120.0;
     bool playing = true;
-    std::string sweep, probe, itchLog, handLog;
+    std::string sweep, probe, itchLog, handLog, touchFile;
     int repeat = 1;
     bool dice = false, loopTransport = false, handMode = false;
     size_t onePass = 0;
@@ -167,6 +169,7 @@ int main (int argc, char** argv)
         else if (k == "--dice") dice = true;
         else if (k == "--hand") handMode = true;
         else if (k == "--hand-log") handLog = next();
+        else if (k == "--touch") touchFile = next();
         else if (k == "--loop-transport") loopTransport = true;
         else if (k == "--genome") genome = std::stoull (next());
         else if (k == "--itch-log") itchLog = next();
@@ -224,7 +227,19 @@ int main (int argc, char** argv)
         std::fprintf (hlog, "seconds,env,speed,feed,space,band,bandHz,freeze\n");
 
     Audio out = in;
-    const int block = probe.empty() ? 256 : 1;
+    std::vector<std::array<float, 9>> touchRows;
+    if (! touchFile.empty())
+    {
+        std::FILE* tf = std::fopen (touchFile.c_str(), "r");
+        std::array<float, 9> r {};
+        while (tf && std::fscanf (tf, "%f,%f,%f,%f,%f,%f,%f,%f,%f", &r[0], &r[1], &r[2], &r[3], &r[4], &r[5], &r[6], &r[7], &r[8]) == 9)
+            touchRows.push_back (r);
+        if (tf)
+            std::fclose (tf);
+        itch = 0;
+        std::fprintf (stderr, "touch: %zu rows\n", touchRows.size());
+    }
+    const int block = ! probe.empty() ? 1 : touchRows.empty() ? 256 : 32;
     std::ofstream probeFile;
     if (! probe.empty())
         probeFile.open (probe, std::ios::binary);
@@ -250,6 +265,23 @@ int main (int argc, char** argv)
         engine.setControls (f, s, held, seconds >= itchOff ? 0 : itch, false);
         engine.setStyle (timing, dry);
         time.ppq = (loopTransport && pos < onePass * (size_t) repeat ? (double) (pos % onePass) / in.sampleRate : seconds) * bpm / 60.0;
+        if (! touchRows.empty())
+        {
+            size_t lo = 0, hi = touchRows.size() - 1;
+            while (hi - lo > 1)
+            {
+                const size_t mid = (lo + hi) / 2;
+                (touchRows[mid][0] <= seconds ? lo : hi) = mid;
+            }
+            const auto& a = touchRows[lo];
+            const auto& b = touchRows[hi];
+            const float w = b[0] > a[0] ? std::clamp ((float) ((seconds - a[0]) / (b[0] - a[0])), 0.0f, 1.0f) : 0.0f;
+            auto at = [&] (int c) { return a[(size_t) c] + w * (b[(size_t) c] - a[(size_t) c]); };
+            dendrite::Touch t;
+            t.speed = at (1); t.feed = at (2); t.space = at (3); t.band = at (4); t.bandHz = at (5);
+            t.freeze = at (6); t.throwing = at (7) > 0.5f; t.lift = at (8);
+            engine.touchFromOutside (true, t);
+        }
         engine.process (out.left.data() + pos, out.right.data() + pos, n, time);
         if (engine.view().itching && ! itching)
         {
