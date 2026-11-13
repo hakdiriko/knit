@@ -60,12 +60,18 @@ public:
         std::atomic<float> hit { 0.0f }, body { 0.0f }, echoBody { 0.0f };
         std::atomic<float> runaway { 0.0f }; // 0..1 while a throw held at endless runs away
         std::atomic<bool> hostPlaying { false }, itching { false };
+        // the fly: what it is doing now
+        std::atomic<float> flyJump { 0.0f }, flySemitones { 0.0f }, flyScratch { 0.0f }, flyScratchHz { 1000.0f }, flyTurn { 0.0f };
+        std::atomic<bool> flyThrowing { false }, flyFrozen { false }, flyAwake { false };
 
         // onsets: each one starts a new tree in the window
         struct Onset { float level = 0.0f; bool thrown = false; };
         juce::AbstractFifo fifo { 64 };
         std::array<Onset, 64> onsets {};
     } display;
+
+    // The fly's neurons, for the window: how often each fired since the window last asked.
+    uint16_t takeFlySpikes (int neuron) noexcept { return engine.itchFly().takeSpikes (neuron); }
 
     // keep: the last minute, on tape, and a diary of what happened (read by the window)
     dendrite::keep::Keep keep;

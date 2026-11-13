@@ -8,7 +8,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-project(dendrite VERSION 2.0.0 LANGUAGES C CXX)
+project(dendrite VERSION 2.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,6 +63,7 @@ target_sources(dendrite PRIVATE
     Source/ui/Field.cpp
     Source/ui/Medium.cpp
     Source/ui/Controls.cpp
+    Source/ui/FlyBrain.cpp
     Source/ui/Tape.cpp
     Source/ui/FirstLight.cpp
     Source/ui/HostFocus.cpp
@@ -71,6 +72,8 @@ target_sources(dendrite PRIVATE
     Source/dsp/Engine.cpp
     Source/dsp/Creature.cpp
     Source/dsp/Hand.cpp
+    Source/dsp/Fly.cpp
+    Source/dsp/FlyData.cpp
     Source/keep/Keep.cpp)
 
 target_include_directories(dendrite PRIVATE Source)
@@ -93,7 +96,7 @@ target_link_libraries(dendrite
 # Local tools (not built in CI): the offline renderer and a window snapshot.
 option(DENDRITE_TOOLS "Build the offline renderer and the window snapshot tool" OFF)
 if(DENDRITE_TOOLS)
-    add_executable(dendrite_render tools/render/render.cpp Source/dsp/Echo.cpp Source/dsp/Itch.cpp Source/dsp/Engine.cpp Source/dsp/Creature.cpp Source/dsp/Hand.cpp)
+    add_executable(dendrite_render tools/render/render.cpp Source/dsp/Echo.cpp Source/dsp/Itch.cpp Source/dsp/Engine.cpp Source/dsp/Creature.cpp Source/dsp/Hand.cpp Source/dsp/Fly.cpp Source/dsp/FlyData.cpp)
     target_include_directories(dendrite_render PRIVATE Source)
 
     juce_add_console_app(dendrite_snapshot PRODUCT_NAME "dendrite_snapshot")
@@ -105,6 +108,7 @@ if(DENDRITE_TOOLS)
         Source/ui/Field.cpp
         Source/ui/Medium.cpp
         Source/ui/Controls.cpp
+        Source/ui/FlyBrain.cpp
         Source/ui/Tape.cpp
         Source/ui/FirstLight.cpp
         Source/ui/HostFocus.cpp
@@ -113,6 +117,8 @@ if(DENDRITE_TOOLS)
         Source/dsp/Engine.cpp
         Source/dsp/Creature.cpp
         Source/dsp/Hand.cpp
+        Source/dsp/Fly.cpp
+        Source/dsp/FlyData.cpp
         Source/keep/Keep.cpp)
     target_include_directories(dendrite_snapshot PRIVATE Source)
     target_compile_definitions(dendrite_snapshot PRIVATE

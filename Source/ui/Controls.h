@@ -31,6 +31,8 @@ public:
     juce::String getTooltip() override;
 
     void setHeadsArea (juce::Rectangle<float> r) { headsArea = r; }
+    // the fly is the itch: its brain takes the heads' place, so their lamps are not drawn
+    void setFly (bool on) { fly = on; repaint(); }
     static constexpr float dotsLeft = 240.0f;
 
     // how much the strip is showing itself (the mouse is in it): the tape above follows it
@@ -83,6 +85,6 @@ private:
     KeepTape* tape = nullptr;
     Ghost ghost;
     float wordGlow = 0.0f;
-    bool dragging = false, hovering = false;
+    bool dragging = false, hovering = false, fly = false;
 };
 } // namespace dendrite::ui

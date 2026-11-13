@@ -243,6 +243,14 @@ void DendriteProcessor::publish()
     d.bpm.store ((float) v.bpm, relaxed);
     d.hostPlaying.store (v.hostPlaying, relaxed);
     d.itching.store (v.itching, relaxed);
+    d.flyJump.store (v.fly.jump, relaxed);
+    d.flySemitones.store (v.fly.semitones, relaxed);
+    d.flyScratch.store (v.fly.scratch, relaxed);
+    d.flyScratchHz.store (v.fly.scratchHz, relaxed);
+    d.flyTurn.store (v.fly.turn, relaxed);
+    d.flyThrowing.store (v.fly.throwing, relaxed);
+    d.flyFrozen.store (v.fly.frozen, relaxed);
+    d.flyAwake.store (v.flyAwake, relaxed);
 
     float level = 0.0f;
     bool thrown = false;

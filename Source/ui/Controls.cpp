@@ -139,7 +139,7 @@ juce::Point<float> ItchStrip::lampCentre (int head) const
 
 int ItchStrip::lampAt (juce::Point<float> p) const
 {
-    if (headsArea.isEmpty() || ! headsArea.contains (p))
+    if (fly || headsArea.isEmpty() || ! headsArea.contains (p))
         return -1;
     for (int k = 0; k < heads; ++k)
         if (p.getDistanceFrom (lampCentre (k)) < 18.0f)
@@ -239,7 +239,7 @@ void ItchStrip::paint (juce::Graphics& g)
     }
 
     // the heads: five lamps; a name appears only while its head plays
-    if (! headsArea.isEmpty())
+    if (! headsArea.isEmpty() && ! fly)
     {
         const float cw = headsArea.getWidth() / (float) heads;
         for (int k = 0; k < heads; ++k)

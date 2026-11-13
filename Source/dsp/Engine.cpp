@@ -37,6 +37,7 @@ void Engine::prepare (float sampleRate)
     heads.prepare (sr);
     mind.rest();
     hand.prepare (sampleRate);
+    fly.prepare (sampleRate);
 
     attackFilter.highpass (150.0f, 0.7071f, sr);
     fastUp = coefFor (0.0003f, sr);
@@ -58,6 +59,7 @@ void Engine::reset()
     heads.reset();
     mind.rest(); // the creature keeps its life
     hand.rest();
+    fly.rest();
     stepOnset = 0.0f;
     throwStarted = false;
     attackFilter.clear();
@@ -140,7 +142,7 @@ void Engine::tickClock (double beatsPerSample, double frameBeats, double barBeat
             if (mean > enough)
             {
                 ++boredFrames;
-                if (itchChoice > 0)
+                if (itchChoice > 0 && ! flyItch)
                 {
                     // The longer the loop goes on, the harder it itches.
                     const auto gesture = diceItch ? Gesture::dice (mixSeed (frame, itchChoice), heads.lastSetMask())
@@ -209,6 +211,8 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
     const int stepsPerBar = std::clamp ((int) std::lround (barBeats * 4.0), 4, 64);
     const double frameBeats = (itchChoice > 0 ? (double) frameBars[itchChoice] : 4.0) * barBeats;
 
+    fly.setAwake (flyItch ? awakeFor (itchChoice) : 0.0f);
+    fly.setEmptyHz (emptyBandHz());
     for (int i = 0; i < numSamples; ++i)
     {
         const float l = left[i], r = right[i];
@@ -233,6 +237,8 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
 
         if (outsideOn)
             echo.setTouch (outside);
+        else if (flyItch)
+            echo.setTouch (fly.process (l, r));
         else if (handItch)
             echo.setTouch (hand.process (attack));
 
@@ -284,7 +290,9 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
     state.repetition = listener.repetition();
     state.frameProgress = (float) (std::fmod (std::max (0.0, beat), frameBeats) / frameBeats);
     state.boredom = std::min (1.0f, (float) boredFrames / 3.0f);
-    state.itching = heads.busy() || hand.busy();
+    state.itching = heads.busy() || hand.busy() || fly.busy();
+    state.fly = fly.doing();
+    state.flyAwake = flyItch && itchChoice > 0;
     for (int h = 0; h < Heads::count; ++h)
         state.lamps[(size_t) h] = heads.lamp (h);
     state.bpm = bpm;

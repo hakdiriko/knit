@@ -128,6 +128,9 @@ int main (int argc, char** argv)
         };
         if (env ("DENDRITE_STRIP_HOVER").isNotEmpty())
             editor->getItchStrip().simulateHover (within ("DENDRITE_STRIP_HOVER"));
+        if (env ("DENDRITE_FLY_OPEN").isNotEmpty() && now >= env ("DENDRITE_FLY_OPEN").getDoubleValue()
+            && ! editor->getFlyBrain().isOpen())
+            editor->setFlyOpen (true); // the fly's drawer opens at this many seconds
         if (env ("DENDRITE_KEEP_HOLD").isNotEmpty())
             editor->getItchStrip().simulateLampPress (within ("DENDRITE_KEEP_HOLD"));
         processor.processBlock (buffer, midi);

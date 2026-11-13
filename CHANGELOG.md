@@ -1,13 +1,16 @@
 # Changelog
 
-## 2.1 (in progress: the hand)
+## 2.1.0 (the fly)
 
-Nothing in the plug-in sounds different yet: the hand is built but switched off, and only the offline renderer can turn it on (`--hand`).
+**The itch is a real fly's nervous system.** Inside dendrite lives the part of a fruit fly's brain that answers music: 4,431 neurons and 300,922 connections from the FlyWire map of the whole adult brain, wired exactly as they are in the fly and run live the way Shiu et al. (2024) run the whole brain. Nothing about its wiring was designed for dendrite, and it is not trained yet.
 
-- **The fly (sketch, tools only).** Hakan heard the hand as presets; the itch should be a nervous system that reacts. `tools/fly/` runs a real fly's brain (FlyWire, 139,000 neurons) on a wav: its ears and eyes get the music, its jump, grooming and turning drive the echo (`render --touch`).
-
-- **The hand.** When the creature is bored, it takes dendrite's own controls for one to four bars and moves several of them as one gesture: tape speed, feed, space, a narrow band in the loop placed where the music is emptiest, and freeze. It throws the moment in as it starts and rides the return up while it writes. Then it hands the controls back exactly where they were. Your knobs and automation are never touched.
-- **Its handwriting.** Each creature grows four coupled oscillators from its genome (after Hollerbach's 1981 model of handwriting). Which controls move together, how sharp the curves are and how far it reaches are its own. Its mood picks the stroke sizes and starting points, and the hits pull the strokes into step while it writes.
+- **It hears and sees the music.** Your track goes into its ears (Johnston's organ on each antenna: low vibration, sound, and the slow push of the level; left channel left antenna). The hits come at its eyes as something approaching (the looming detectors; lows from below, highs from above).
+- **It gets used to things.** Each sense tires when the same thing keeps coming and recovers slowly. It startles at the first hits, settles into a loop, and jumps again at what is new: a break, a new part.
+- **What it does moves the echo.** When its giant fiber fires it jumps: the tape lurches down (up to 5 semitones) and comes back, and it throws the moment in. A hard jump freezes the loop for a second. Its grooming (the antennal scratch) rubs a narrow band in the loop back and forth, placed where the music leaves room. Its turning leans the space; its excitement feeds the echo. As with the hand, nothing touches your knobs or automation.
+- **The itch knob is how awake it is.** Off sleeps. Toward ¼ it is wide awake and recovers quickly; toward 8 it is drowsy. The five heads step aside (the code stays).
+- **Watch it think.** Its brain lives where the head lamps were: every neuron at its place, flashing red as it fires and drying to grey. Click it and the window opens a drawer under the strip with the brain large, where its ears, eyes, giant fiber and grooming sit, and one line saying what it is doing. Click again to close.
+- It costs about 5% of one CPU core.
+- `tools/fly/`: the whole-brain simulation, the cut and the export (`export.py` writes `Source/dsp/FlyData.cpp`). The hand (`--hand`) stays in the renderer for comparison; `--heads` renders the 2.0a itch.
 
 ## 2.0.0 (2.0a: the creature)
 

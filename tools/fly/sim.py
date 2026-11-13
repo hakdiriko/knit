@@ -62,7 +62,7 @@ def groups(ann):
             g[name, s] = part
     return g
 
-def run(W, g, f, n, seconds, rate=200.0, seed=1):
+def run(W, g, f, n, seconds, rate=float(os.environ.get('RATE', 200)), seed=1):
     rng = np.random.default_rng(seed)
     steps = int(seconds / DT); dly = int(round(DLY / DT))
     v = np.full(n, V0, np.float32); gg = np.zeros(n, np.float32); rf = np.zeros(n, np.int16)

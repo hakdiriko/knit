@@ -6,6 +6,7 @@
 #include "Itch.h"
 #include "Creature.h"
 #include "Hand.h"
+#include "Fly.h"
 
 namespace dendrite
 {
@@ -59,6 +60,9 @@ public:
         // well it knows this loop
         std::array<float, Creature::neurons> neurons {};
         float arousal = 0.0f, familiarity = 0.0f;
+        // the fly: what it is doing (its neurons' spikes go through itchFly().takeSpikes)
+        Fly::Doing fly;
+        bool flyAwake = false;
     };
     const View& view() const noexcept { return state; }
 
@@ -72,6 +76,14 @@ public:
     // 2.1 sketch: the itch as a motif (the hand moves the echo's own controls) instead of
     // the heads. Off by default until Hakan hears it.
     void useHand (bool on) noexcept { handItch = on; }
+    // The fly is the itch (default). Off: the creature fires the heads, as in 2.0a.
+    void useFly (bool on) noexcept { flyItch = on; }
+    Fly& itchFly() noexcept { return fly; }
+    // How awake the fly is for an itch choice: off sleeps, 1/4 bar is wide awake, 4 bars half.
+    static float awakeFor (int choice) noexcept
+    {
+        return choice <= 0 ? 0.0f : clamp01 (1.0f - 0.125f * std::log2 (frameBars[choice] / 0.25f));
+    }
     const Hand& itchHand() const noexcept { return hand; }
     // Tools only: something outside (the fly sketch) writes the touch on the echo itself.
     void touchFromOutside (bool on, const Touch& t = {}) noexcept { outsideOn = on; outside = t; }
@@ -108,6 +120,8 @@ private:
     Creature mind;
     bool diceItch = false, handItch = false;
     Hand hand;
+    bool flyItch = true;
+    Fly fly;
     bool outsideOn = false;
     Touch outside;
     uint64_t handGenome = 0;
