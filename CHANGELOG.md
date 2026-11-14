@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.0 (the fly remembers)
+
+- **The fly is saved with your set.** What it has learned (all 28,761 synapses its fear lives in) and its moods (wound up, tired, its feeling) go into the Live set, about 77 KB. Reopen the set and it is the same fly, still afraid of what hurt it, rested but remembering. Sets from before 2.3 open with a newborn fly, as before.
+- **A new fly, when you want one:** right-click the fly's brain, small or in the drawer, and choose "a new fly". It forgets everything and calms down. Nothing else changes.
+
 ## 2.2.1
 
 - **The bitcrush is gone.** The fly's brain moves in 0.5 ms steps, and the echo's tape speed jumped with it every step, so its repeats crackled like a bitcrusher whenever it jumped or leaned (since 2.1). Now the echo glides to what the fly wants, sample by sample (about 4 ms). On Hakan's loop the grit above 10 kHz drops by 30 dB, to where it is with the itch off. Turning the itch off also glides back instead of snapping.

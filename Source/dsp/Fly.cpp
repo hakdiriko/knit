@@ -46,6 +46,50 @@ void Fly::forget() noexcept
     fatigue = 0.0f;
     memory = 1.0f;
     feelingHabit = 0.0f;
+    livedSec = 0.0;
+}
+
+bool Fly::Memory::valid() const noexcept
+{
+    const auto fine = [] (float x, float lo, float hi) { return std::isfinite (x) && x >= lo && x <= hi; };
+    return magic == tag && count == (uint32_t) flydata::plasticCount && fine (arousal, 0.0f, 1.0f)
+        && fine (fatigue, 0.0f, 1.0f) && fine (feelingHabit, -1.0f, 1.0f) && std::isfinite (lived) && lived >= 0.0;
+}
+
+void Fly::save (Memory& m) const noexcept
+{
+    m.magic = Memory::tag;
+    m.count = (uint32_t) flydata::plasticCount;
+    m.arousal = clamp01 (arousal);
+    m.fatigue = clamp01 (fatigue);
+    m.feelingHabit = std::clamp (feelingHabit, -1.0f, 1.0f);
+    m.lived = livedSec;
+    for (int p = 0; p < flydata::plasticCount; ++p)
+    {
+        const float birth = wSynapse * (float) flydata::weight[flydata::plastic[p]];
+        const float share = std::abs (birth) > 1.0e-9f ? clamp01 (w[flydata::plastic[p]] / birth) : 1.0f;
+        m.strength[(size_t) p] = (uint16_t) std::lround (share * 65535.0f);
+    }
+}
+
+void Fly::adopt (const Memory& m) noexcept
+{
+    if (! m.valid())
+        return;
+    double sum = 0.0;
+    for (int p = 0; p < flydata::plasticCount; ++p)
+    {
+        const float birth = wSynapse * (float) flydata::weight[flydata::plastic[p]];
+        auto& wp = w[flydata::plastic[p]];
+        wp = birth * ((float) m.strength[(size_t) p] * (1.0f / 65535.0f));
+        sum += (double) wp;
+    }
+    memory = (float) (sum / (double) plasticBirth);
+    arousal = m.arousal;
+    fatigue = m.fatigue;
+    feelingHabit = m.feelingHabit;
+    feeling = feelingHabit;
+    livedSec = m.lived;
 }
 
 void Fly::prepare (float sampleRate) noexcept
@@ -250,6 +294,7 @@ void Fly::live() noexcept
     feeling = (closer - away) / (closer + away + 2.0f);
     if (! innerLife)
         return;
+    livedSec += (double) dt;
 
     // arousal: every jump winds it up a little (in the reflexes); it calms over about forty seconds
     arousal += dt * (0.2f - arousal) / 40.0f;

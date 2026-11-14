@@ -2,7 +2,7 @@
 
 How dendrite's itch became a real fly's brain, how it works, and where it stands. It is written so another agent, thread or a separate product (Hakan has floated selling the fly as an add-on) can take it over cold. Keep it current: when the fly changes, change this file in the same commit.
 
-Last updated: 2026-11-13, version 2.2.0 (branch `claude/project-thread-vbjekz`, PR #10, not merged yet).
+Last updated: 2026-11-14, version 2.3.0. Main holds 2.2.1 (PR #9 and #10 merged on 2026-11-14). The fly is now worked on in its own project ("fly"); standard dendrite (echo, window) continues in the other project. The fly project touches only `Fly*`, `FlyData*`, `FlyBrain*`, `tools/fly/` and the small hooks that connect them (Engine, Echo's Touch, Processor's fly state).
 
 ## 0. Start here (first hour for whoever takes it over)
 
@@ -201,7 +201,9 @@ Spikes propagate through a CSR matrix (`rowStart`, `target`, and `w`, a mutable 
 
 **Persistence:**
 - Memory and moods survive `prepare()` and `rest()`; `forget()` resets them.
-- They are **not saved** with the set. Reloading gives a newborn fly.
+- Since 2.3 they are **saved with the set** (`Fly::Memory`, 57,560 bytes, about 77 KB as base64 in a `fly` child of the state): every plastic synapse as a uint16 share of its birth weight, plus arousal, fatigue, the feeling habit and `lived` (seconds of inner life). Activity, senses and reflexes are not saved; a fly brought back wakes rested and remembering.
+- The audio thread seals it into a seqlock vault about every 2 s (`Processor::keepFly`); a loaded memory waits in `flyArriving` and is adopted between two blocks, as the creature's life is. An invalid or missing one leaves the current fly.
+- Right-click the brain (small or drawer): "a new fly (it forgets what it learned)" calls `Processor::forgetFly()`, done at the next block.
 
 ### Reflexes: neurons to Touch (`reflexes()`)
 
@@ -299,7 +301,7 @@ A preference model (Bradley-Terry over his picks) or a simple evolution strategy
 
 ## 10. Open problems and next steps
 
-1. **Memory not saved with the set.** The creature (2.0a) saved its life in the plug-in state. The fly could save its 28,761 plastic weights (about 115 KB as float, or quantised) plus its moods. This was asked of Hakan on 2026-11-13; no answer yet.
+1. ~~Memory not saved with the set.~~ Done in 2.3.0 (Hakan said yes on 2026-11-14), with a right-click for a new fly.
 2. **Fear saturates on one loop over long sessions** (at the current rate, toward mostly dives after several minutes). Forgetting brings it back when the music changes. Watch whether he finds the late phase repetitive.
 3. **The scratch's amount** still follows the grooming DN's timing, which is locked to the loop (about 90% alike pass to pass). Its place now varies. A sequential grooming model (Seeds et al. 2014: hierarchical suppression) would be the biological way to vary it.
 4. **The antennal lobe** is bypassed (it runs away in this model). A proper fix: add the local inhibitory neurons with weights scaled, or a gain-control step on the ORNs.

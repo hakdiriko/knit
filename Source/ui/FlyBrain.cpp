@@ -158,12 +158,26 @@ void FlyBrain::paint (juce::Graphics& g)
 
 void FlyBrain::mouseUp (const juce::MouseEvent& e)
 {
+    if (e.mods.isPopupMenu())
+    {
+        // the one way to start over: a newborn fly, nothing learned, calm
+        juce::PopupMenu menu;
+        menu.addItem (1, "a new fly (it forgets what it learned)");
+        juce::Component::SafePointer<FlyBrain> self (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                            [self] (int chosen)
+                            {
+                                if (self != nullptr && chosen == 1)
+                                    self->processor.forgetFly();
+                            });
+        return;
+    }
     if (e.mouseWasClicked() && onToggle)
         onToggle();
 }
 
 juce::String FlyBrain::getTooltip()
 {
-    return open ? "close the fly" : "the fly: click to watch it think";
+    return open ? "close the fly (right-click: a new fly)" : "the fly: click to watch it think (right-click: a new fly)";
 }
 } // namespace dendrite::ui

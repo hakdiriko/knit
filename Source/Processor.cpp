@@ -73,6 +73,7 @@ DendriteProcessor::DendriteProcessor()
     genome ^= (uint64_t) (juce::pointer_sized_uint) this;
     engine.creature().beBorn (genome);
     vault.life = engine.creature().saved();
+    engine.itchFly().save (flyVault->memory);
 }
 
 juce::AudioProcessorParameter* DendriteProcessor::getBypassParameter() const { return params.getParameter ("bypass"); }
@@ -109,6 +110,19 @@ void DendriteProcessor::run (juce::AudioBuffer<float>& buffer, bool forceBypass)
         engine.creature().adopt (arriving);
         arrivingState.store (0, std::memory_order_release);
         keptAge = 0;
+    }
+    // so does a fly's memory, and a new fly when the window asks for one
+    int flyReady = 2;
+    if (flyArrivingState.compare_exchange_strong (flyReady, 3, std::memory_order_acquire))
+    {
+        engine.itchFly().adopt (*flyArriving);
+        flyArrivingState.store (0, std::memory_order_release);
+        flyUntilSeal = 0;
+    }
+    if (flyForget.exchange (false, std::memory_order_acq_rel))
+    {
+        engine.itchFly().forget();
+        flyUntilSeal = 0;
     }
 
     const int n = buffer.getNumSamples();
@@ -172,6 +186,43 @@ void DendriteProcessor::run (juce::AudioBuffer<float>& buffer, bool forceBypass)
     }
     publish();
     keepLife();
+    keepFly (n);
+}
+
+void DendriteProcessor::keepFly (int samples) noexcept
+{
+    flyUntilSeal -= samples;
+    if (flyUntilSeal > 0)
+        return;
+    flyUntilSeal = (int) (2.0 * getSampleRate());
+    auto& v = *flyVault;
+    v.seq.fetch_add (1, std::memory_order_acq_rel); // odd: writing
+    std::atomic_thread_fence (std::memory_order_release);
+    engine.itchFly().save (v.memory);
+    v.seq.fetch_add (1, std::memory_order_release); // even: done
+}
+
+void DendriteProcessor::readFly (FlyMemory& out) const
+{
+    if (flyArrivingState.load (std::memory_order_acquire) == 2)
+    {
+        out = *flyArriving;
+        return;
+    }
+    const auto& v = *flyVault;
+    for (int attempt = 0; attempt < 1000; ++attempt)
+    {
+        const auto before = v.seq.load (std::memory_order_acquire);
+        if ((before & 1u) != 0)
+        {
+            std::this_thread::yield();
+            continue;
+        }
+        std::memcpy (&out, &v.memory, sizeof (out));
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (v.seq.load (std::memory_order_relaxed) == before)
+            return;
+    }
 }
 
 void DendriteProcessor::keepLife() noexcept
@@ -280,6 +331,18 @@ void DendriteProcessor::getStateInformation (juce::MemoryBlock& dest)
     creature.setProperty ("life", juce::Base64::toBase64 (&life, sizeof (life)), nullptr);
     state.appendChild (creature, nullptr);
 
+    // the fly's memory and moods (about 77 KB as text), so reopening the set brings back the same fly
+    state.removeChild (state.getChildWithName ("fly"), nullptr);
+    auto flyScratch = std::make_unique<FlyMemory>();
+    readFly (*flyScratch);
+    if (flyScratch->valid())
+    {
+        juce::ValueTree fly ("fly");
+        fly.setProperty ("lived", flyScratch->lived, nullptr);
+        fly.setProperty ("memory", juce::Base64::toBase64 (flyScratch.get(), sizeof (FlyMemory)), nullptr);
+        state.appendChild (fly, nullptr);
+    }
+
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, dest);
 }
@@ -319,6 +382,40 @@ void DendriteProcessor::setStateInformation (const void* data, int size)
             }
         }
         state.removeChild (creature, nullptr);
+    }
+
+    // A set saved with a fly brings back what it learned; a set from before 2.3 keeps this fly.
+    const auto fly = state.getChildWithName ("fly");
+    if (fly.isValid())
+    {
+        juce::MemoryOutputStream bytes;
+        if (juce::Base64::convertFromBase64 (bytes, fly.getProperty ("memory").toString())
+            && bytes.getDataSize() == sizeof (FlyMemory))
+        {
+            auto flyScratch = std::make_unique<FlyMemory>();
+            std::memcpy (flyScratch.get(), bytes.getData(), sizeof (FlyMemory));
+            if (flyScratch->valid())
+            {
+                bool claimed = false;
+                for (int spins = 0; spins <= 100000; ++spins)
+                {
+                    int expected = flyArrivingState.load (std::memory_order_acquire);
+                    if ((expected == 0 || expected == 2)
+                        && flyArrivingState.compare_exchange_weak (expected, 1, std::memory_order_acquire))
+                    {
+                        claimed = true;
+                        break;
+                    }
+                    std::this_thread::yield();
+                }
+                if (claimed)
+                {
+                    *flyArriving = *flyScratch;
+                    flyArrivingState.store (2, std::memory_order_release);
+                }
+            }
+        }
+        state.removeChild (fly, nullptr);
     }
     params.replaceState (state);
 }

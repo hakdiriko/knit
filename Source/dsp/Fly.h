@@ -30,6 +30,7 @@
 #include "FlyData.h"
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <vector>
 
 namespace dendrite
@@ -44,6 +45,22 @@ public:
     void prepare (float sampleRate) noexcept;
     void rest() noexcept;   // asleep and rested: no activity, every sense fresh (it keeps its memory and moods)
     void forget() noexcept; // a fly that never heard anything: memory and moods as at birth
+
+    // What it has learned and how it feels, as saved with the set (about 57 KB): every plastic
+    // KC -> MBON synapse as a share of its strength at birth, and the slow moods. Its activity,
+    // senses and reflexes are not part of it: a fly brought back wakes up rested, remembering.
+    struct Memory
+    {
+        static constexpr uint32_t tag = 0x464C5931u; // "FLY1"
+        uint32_t magic = 0, count = 0;
+        float arousal = 0.3f, fatigue = 0.0f, feelingHabit = 0.0f;
+        double lived = 0.0; // seconds of inner life so far
+        std::array<uint16_t, flydata::plasticCount> strength {};
+        bool valid() const noexcept;
+    };
+    void save (Memory&) const noexcept;  // audio thread (or wherever the fly runs)
+    void adopt (const Memory&) noexcept; // between two blocks; a memory that is not valid is ignored
+    double lived() const noexcept { return livedSec; }
 
     // false: the 2.1.0 fly (no restlessness, no moods, no learning), for comparison
     void setInnerLife (bool on) noexcept { innerLife = on; }
@@ -148,6 +165,7 @@ private:
     int stepSpikes = 0;
     float brainBusy = 0.0f, arousal = 0.3f, fatigue = 0.0f, memory = 1.0f, plasticBirth = 1.0f;
     float feeling = 0.0f, feelingHabit = 0.0f, fear = 0.0f, fearNow = 0.0f;
+    double livedSec = 0.0;
     // fatigue grows while the brain is busier than this (spikes per second, the whole cut brain)
     static constexpr float fatigueFrom = 40000.0f, fatigueSpan = 100000.0f;
 
