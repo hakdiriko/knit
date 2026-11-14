@@ -8,8 +8,8 @@ fast it calms. Each round is a small evolution strategy in log space around the 
   round:  python3 tools/fly/taste/taste.py round <loop.wav> <outdir> [--n 6] [--repeat 32] [--bpm 120]
           renders n blind variants (letters A..), one of them the centre itself, and writes
           tools/fly/taste/rounds/NN.json (variants, letters, seed). Renders go to <outdir>.
-  pick:   python3 tools/fly/taste/taste.py pick NN <letter> [<letter2>]
-          records the pick (a second letter: "between these two") and moves the centre:
+  pick:   python3 tools/fly/taste/taste.py pick NN <letter> [<letter> ...] [--note "his words"]
+          records the pick (several letters: between them; a letter twice weighs double) and moves the centre:
           centre += 0.6 * (pick - centre) in log space; the spread shrinks by 0.8.
 
 State lives in tools/fly/taste/centre.json (the centre and the spread). Everything is in the repo,
@@ -88,7 +88,7 @@ def cmd_round(loop, outdir, n=6, repeat=32, bpm=120.0):
     print(f'round {number:02d}: {n} variants in {outdir}')
 
 
-def cmd_pick(number, *letters):
+def cmd_pick(number, *letters, note=None):
     path = os.path.join(ROUNDS, f'{int(number):02d}.json')
     r = json.load(open(path))
     picked = [r['variants'][L.upper()]['taste'] for L in letters]
@@ -97,6 +97,8 @@ def cmd_pick(number, *letters):
     moved = {k: clamp(k, math.exp(math.log(max(c['taste'][k], 1e-6)) + 0.6 * (math.log(target[k]) - math.log(max(c['taste'][k], 1e-6)))))
              for k in DEFAULT}
     r['pick'] = [L.upper() for L in letters]
+    if note:
+        r['note'] = note
     json.dump(r, open(path, 'w'), indent=1)
     c['history'].append(dict(round=r['round'], pick=r['pick'], before=c['taste'], after=moved))
     c['taste'], c['spread'] = moved, round(c['spread'] * 0.8, 4)
@@ -118,4 +120,9 @@ if __name__ == '__main__':
                 del rest[i:i + 2]
         cmd_round(rest[0], rest[1], **kw)
     elif a[0] == 'pick':
-        cmd_pick(*a[1:])
+        rest, note = a[1:], None
+        if '--note' in rest:
+            i = rest.index('--note')
+            note = rest[i + 1]
+            del rest[i:i + 2]
+        cmd_pick(*rest, note=note)
