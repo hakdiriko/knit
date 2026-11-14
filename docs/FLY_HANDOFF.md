@@ -285,7 +285,11 @@ Reports for Hakan are in the project files:
 
 ## 9. Training: status and plan
 
-**Tooling ready (2.3.0), no round run yet.** `Fly::Taste` holds the eight numbers taste training moves (learn, forget, restless, jumpy, scratch, lurch, lean, calm; defaults = the shipped fly, renders bit-identical). `build/render --taste learn=0.1,jumpy=1.2` sets any of them. `tools/fly/taste/taste.py round <loop.wav> <outdir>` renders 6 blind variants (one is the current centre) and logs them in `tools/fly/taste/rounds/NN.json`; `taste.py pick NN <letter> [<letter>]` records Hakan's pick and moves `centre.json` 60% toward it in log space, the spread shrinking by 0.8 each round. When the centre settles, bake it into the `Taste` defaults.
+**Round 1 is out (2026-11-14), waiting for Hakan's pick.** It ran on `tools/fly/taste/loops/fly-keys_127bpm.wav` (made by `make_keys.py`, because the playground's loops folder was empty): six 90 s renders, in `C:\Claude-Playground\dendrite\listening\fly-taste-01\` on his computer and in the project files under `fly/taste/round01/`. Record his answer with `taste.py pick 1 <letter>`.
+
+**Found while making the loop:** on dense material (the same keys with a kick on 1 and 3, a rim and eighth-note hats) the fly jumped once in 90 s, against 25 times on the sparse keys alone. Its looming detectors habituate (use 12 per second, 10 s to recover), so a steady groove blinds its eyes and only the scratch is left. This is the next thing to fix after the taste rounds settle: candidates are habituating each eye band to its own rhythm (so only what breaks the pattern looms) or a slower, shallower tiring.
+
+Tooling: `Fly::Taste` holds the eight numbers taste training moves (learn, forget, restless, jumpy, scratch, lurch, lean, calm; defaults = the shipped fly, renders bit-identical). `build/render --taste learn=0.1,jumpy=1.2` sets any of them. `tools/fly/taste/taste.py round <loop.wav> <outdir>` renders 6 blind variants (one is the current centre) and logs them in `tools/fly/taste/rounds/NN.json`; `taste.py pick NN <letter> [<letter>]` records Hakan's pick and moves `centre.json` 60% toward it in log space, the spread shrinking by 0.8 each round. When the centre settles, bake it into the `Taste` defaults.
 
 Before 2.3: What exists is live learning (the fly's own aversive plasticity during use).
 

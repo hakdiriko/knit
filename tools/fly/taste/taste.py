@@ -5,7 +5,7 @@ The wiring never changes. What moves is Fly::Taste (Source/dsp/Fly.h): eight num
 learns and forgets, how restless and jumpy it is, how hard it scratches, lurches and leans, and how
 fast it calms. Each round is a small evolution strategy in log space around the current centre:
 
-  round:  python3 tools/fly/taste/taste.py round <loop.wav> <outdir> [--n 6] [--repeat 32]
+  round:  python3 tools/fly/taste/taste.py round <loop.wav> <outdir> [--n 6] [--repeat 32] [--bpm 120]
           renders n blind variants (letters A..), one of them the centre itself, and writes
           tools/fly/taste/rounds/NN.json (variants, letters, seed). Renders go to <outdir>.
   pick:   python3 tools/fly/taste/taste.py pick NN <letter> [<letter2>]
@@ -43,9 +43,9 @@ def spec(t):
     return ','.join(f'{k}={t[k]:.6g}' for k in DEFAULT)
 
 
-def render(loop, out, t, repeat, log):
+def render(loop, out, t, repeat, log, bpm=120.0):
     cmd = [os.path.join(ROOT, 'build', 'render'), loop, out, '--repeat', str(repeat), '--loop-transport',
-           '--taste', spec(t), '--fly-log', log]
+           '--taste', spec(t), '--fly-log', log, '--bpm', str(bpm)]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -58,7 +58,7 @@ def summary(log):
     return dict(jumps_per_min=round(jumps * 60.0 / sec, 1), scratch_mean=round(scratch, 3), fear_end=round(fear, 2))
 
 
-def cmd_round(loop, outdir, n=6, repeat=32):
+def cmd_round(loop, outdir, n=6, repeat=32, bpm=120.0):
     c = load_centre()
     os.makedirs(ROUNDS, exist_ok=True)
     number = len([f for f in os.listdir(ROUNDS) if f.endswith('.json')]) + 1
@@ -80,10 +80,10 @@ def cmd_round(loop, outdir, n=6, repeat=32):
         L = letters[slot]
         wav = os.path.join(outdir, f'round{number:02d}-{L}.wav')
         log = os.path.join(outdir, f'round{number:02d}-{L}.csv')
-        render(loop, wav, variants[v], repeat, log)
+        render(loop, wav, variants[v], repeat, log, bpm)
         entries[L] = dict(taste=variants[v], is_centre=(v == 0), heard=summary(log))
         print(L, entries[L]['heard'])
-    json.dump(dict(round=number, seed=seed, loop=os.path.basename(loop), repeat=repeat, spread=c['spread'],
+    json.dump(dict(round=number, seed=seed, loop=os.path.basename(loop), repeat=repeat, bpm=bpm, spread=c['spread'],
                    variants=entries, pick=None), open(os.path.join(ROUNDS, f'{number:02d}.json'), 'w'), indent=1)
     print(f'round {number:02d}: {n} variants in {outdir}')
 
@@ -111,10 +111,10 @@ if __name__ == '__main__':
     elif a[0] == 'round':
         kw = {}
         rest = a[1:]
-        for flag in ('--n', '--repeat'):
+        for flag in ('--n', '--repeat', '--bpm'):
             if flag in rest:
                 i = rest.index(flag)
-                kw[flag[2:]] = int(rest[i + 1])
+                kw[flag[2:]] = float(rest[i + 1]) if flag == '--bpm' else int(rest[i + 1])
                 del rest[i:i + 2]
         cmd_round(rest[0], rest[1], **kw)
     elif a[0] == 'pick':
