@@ -115,5 +115,12 @@
    }
   }
  },
- "pick": null
+ "pick": [
+  "A",
+  "A",
+  "D",
+  "D",
+  "F"
+ ],
+ "note": "A, D and maybe F and barely E. Also: the workflow is too slow, shorten the loops and find a better workflow."
 }
