@@ -28,6 +28,7 @@
 
 #include "Hand.h"
 #include "FlyData.h"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -61,6 +62,29 @@ public:
     void save (Memory&) const noexcept;  // audio thread (or wherever the fly runs)
     void adopt (const Memory&) noexcept; // between two blocks; a memory that is not valid is ignored
     double lived() const noexcept { return livedSec; }
+
+    // Its temperament: the few numbers taste training moves (tools/fly/taste/). The defaults are
+    // the fly as it ships; the wiring itself never changes.
+    struct Taste
+    {
+        float learn = 0.06f;     // how fast what hurt it becomes fearful
+        float forget = 600.0f;   // seconds to forget
+        float restless = 10.0f;  // random kicks per neuron per second
+        float jumpy = 1.0f;      // >1 jumps more easily
+        float scratch = 0.85f;   // how hard it grooms the band
+        float lurch = 0.4f;      // octaves of tape at a full jump
+        float lean = 0.35f;      // how far it leans the space
+        float calm = 40.0f;      // seconds for arousal to settle
+    };
+    void setTaste (const Taste& t) noexcept
+    {
+        taste = t;
+        taste.forget = std::max (taste.forget, 1.0f);
+        taste.restless = std::max (taste.restless, 0.01f);
+        taste.jumpy = std::max (taste.jumpy, 0.05f);
+        taste.calm = std::max (taste.calm, 1.0f);
+    }
+    const Taste& getTaste() const noexcept { return taste; }
 
     // false: the 2.1.0 fly (no restlessness, no moods, no learning), for comparison
     void setInnerLife (bool on) noexcept { innerLife = on; }
@@ -157,6 +181,7 @@ private:
 
     // its inner life
     bool innerLife = true;
+    Taste taste;
     std::vector<int16_t> role; // per neuron: Kenyon cell k (k), DAN d (-2 - d), MBON m (-10000 - m), else -1
     std::array<float, flydata::kenyonCount> kcTrace {};
     std::array<float, flydata::danCount> danTrace {};

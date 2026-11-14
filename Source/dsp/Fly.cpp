@@ -15,7 +15,7 @@ constexpr int refractorySteps = 4;
 constexpr float tireUse[7] = { 0.8f, 0.8f, 0.3f, 12.0f, 12.0f, 12.0f, 0.5f };
 constexpr float tireBack[7] = { 3.0f, 3.0f, 2.0f, 10.0f, 10.0f, 10.0f, 5.0f };
 // the inner life: restless kicks (per neuron per second, calm; mV), learning rate, forgetting (s)
-constexpr float kickRate = 10.0f, kickMv = 1.5f, learnRate = 0.06f, forgetSec = 600.0f;
+constexpr float kickMv = 1.5f; // kick rate, learning rate and forgetting are in Taste
 constexpr float liveSec = 0.010f; // traces, moods and learning run every 10 ms
 
 float coeff (float seconds, float dt) noexcept { return 1.0f - std::exp (-dt / seconds); }
@@ -297,7 +297,7 @@ void Fly::live() noexcept
     livedSec += (double) dt;
 
     // arousal: every jump winds it up a little (in the reflexes); it calms over about forty seconds
-    arousal += dt * (0.2f - arousal) / 40.0f;
+    arousal += dt * (0.2f - arousal) / taste.calm;
     fatigue += dt * (clamp01 ((brainBusy - fatigueFrom) / fatigueSpan) - fatigue) / 120.0f;
     feelingHabit += coeff (120.0f, dt) * (feeling - feelingHabit);
 
@@ -312,7 +312,7 @@ void Fly::live() noexcept
     for (int m = 0; m < flydata::mbonCount; ++m)
         d[(size_t) m] = 1.0f - std::exp (-dopamine[(size_t) m] / 5.0f);
     double sum = 0.0, heard = 0.0, heardAtBirth = 0.0;
-    const float back = dt / forgetSec;
+    const float back = dt / taste.forget;
     for (int p = 0; p < flydata::plasticCount; ++p)
     {
         const float dm = d[flydata::plasticMbon[p]];
@@ -323,7 +323,7 @@ void Fly::live() noexcept
         heardAtBirth += (double) (t * birth);
         // where dopamine meets an active Kenyon cell, the synapse weakens; slowly it comes back
         if (dm > 1.0e-4f && t > 1.0e-3f)
-            wp *= 1.0f - dt * learnRate * dm * active[flydata::plasticKenyon[p]];
+            wp *= 1.0f - dt * taste.learn * dm * active[flydata::plasticKenyon[p]];
         wp += (birth - wp) * back;
         sum += (double) wp;
     }
@@ -392,11 +392,11 @@ void Fly::step() noexcept
             rp[n] = std::max (0.0f, rp[n] - 1.0f);
         }
     }
-    // restless: a few small random kicks, about kickRate per neuron per second (more when wound up),
+    // restless: a few small random kicks, about taste.restless per neuron per second (more when wound up),
     // found by jumping from one kicked neuron to the next instead of asking every neuron
     if (innerLife)
     {
-        const float meanGap = 1.0f / (kickRate * (1.0f + arousal) * dtSec);
+        const float meanGap = 1.0f / (taste.restless * (1.0f + arousal) * dtSec);
         while (kickNext < (float) neurons)
         {
             v[(size_t) kickNext] += kickMv;
@@ -490,7 +490,7 @@ void Fly::reflexes() noexcept
         const float n = (uniform() + uniform() + uniform() + uniform() - 2.0f) * 1.7320508f;
         readiness += -readiness * dt / 3.0f + std::sqrt (2.0f * dt / 3.0f) * n;
     }
-    const float jumpAt = innerLife ? 45.0f * (1.25f - 0.3f * arousal) * (1.0f + 0.4f * fatigue) * std::exp (-0.35f * readiness)
+    const float jumpAt = innerLife ? 45.0f / taste.jumpy * (1.25f - 0.3f * arousal) * (1.0f + 0.4f * fatigue) * std::exp (-0.35f * readiness)
                                    : 45.0f;
     const float jumpRest = innerLife ? 1.0f + 1.5f * fatigue : 1.0f;
     if (escape > jumpAt && sinceJump >= jumpRest)
@@ -531,13 +531,13 @@ void Fly::reflexes() noexcept
     const float gm = clamp01 ((groom - groomHabit + 0.5f) / 7.0f);
     // what its MBONs say now against lately: come closer, it stays and grooms more; keep away, less
     const float mood = innerLife ? std::clamp ((feeling - feelingHabit) / 0.08f, -1.0f, 1.0f) : 0.0f;
-    band = 0.85f * gm * std::sqrt (gm) * (innerLife ? (1.0f - 0.6f * fatigue) * (0.75f + 0.4f * mood) : 1.0f);
+    band = taste.scratch * gm * std::sqrt (gm) * (innerLife ? (1.0f - 0.6f * fatigue) * (0.75f + 0.4f * mood) : 1.0f);
     throwGlow += coeff (0.3f, dt) * ((throwing ? 1.0f : 0.0f) - throwGlow);
     const float leanNow = std::clamp ((lean - leanHabit) / 0.8f, -1.0f, 1.0f);
 
-    target.speed = std::pow (2.0f, 0.4f * lurch);
+    target.speed = std::pow (2.0f, taste.lurch * lurch);
     target.feed = clamp01 (excited / 4.0f) * 0.18f - 0.05f;
-    target.space = 0.35f * leanNow;
+    target.space = taste.lean * leanNow;
     target.band = band;
     // where it scratches: where the music leaves room, moved by its legs' rub, lower when scared,
     // and wandering with what its MBONs say
@@ -549,7 +549,7 @@ void Fly::reflexes() noexcept
 
     busyNow = lurchLeft > 0.0f || band > (busyNow ? 0.08f : 0.3f);
     now.jump = lurchLeft > 0.0f ? lurchSize : 0.0f;
-    now.semitones = 12.0f * 0.4f * lurch;
+    now.semitones = 12.0f * taste.lurch * lurch;
     now.throwing = throwing;
     now.frozen = target.freeze > 0.5f;
     now.scratch = band;

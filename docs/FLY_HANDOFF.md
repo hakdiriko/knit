@@ -285,7 +285,9 @@ Reports for Hakan are in the project files:
 
 ## 9. Training: status and plan
 
-**Not started.** What exists is live learning (the fly's own aversive plasticity during use).
+**Tooling ready (2.3.0), no round run yet.** `Fly::Taste` holds the eight numbers taste training moves (learn, forget, restless, jumpy, scratch, lurch, lean, calm; defaults = the shipped fly, renders bit-identical). `build/render --taste learn=0.1,jumpy=1.2` sets any of them. `tools/fly/taste/taste.py round <loop.wav> <outdir>` renders 6 blind variants (one is the current centre) and logs them in `tools/fly/taste/rounds/NN.json`; `taste.py pick NN <letter> [<letter>]` records Hakan's pick and moves `centre.json` 60% toward it in log space, the spread shrinking by 0.8 each round. When the centre settles, bake it into the `Taste` defaults.
+
+Before 2.3: What exists is live learning (the fly's own aversive plasticity during use).
 
 The planned taste training (agreed with Hakan as the next phase):
 - the wiring stays fixed;
