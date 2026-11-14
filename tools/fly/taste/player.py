@@ -10,7 +10,7 @@ import base64, json, os, subprocess, sys, tempfile, wave
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-PAGE = r'''<title>Fly Taste Round __ROUND__</title>
+PAGE = r'''<title>__TITLE__</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@400;600&family=Fragment+Mono&display=swap">
 <style>
@@ -34,6 +34,8 @@ kbd { font-family: var(--numbers); font-size: 13px; color: var(--fg); border: 1p
 .pick { font: 600 40px/1 var(--words); color: var(--dim); background: none; border: 0; padding: 14px 0; cursor: pointer; border-radius: 6px; }
 .fly.on .pick { color: var(--itch); }
 .pick:focus-visible, .rate button:focus-visible, .bar:focus-visible, .go:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.cap { font-size: 13px; color: var(--dim); text-align: center; min-height: 2.6em; line-height: 1.3; }
+.cap:empty { display: none; }
 .rate { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .rate button { font: 400 13px/1 var(--words); color: var(--dim); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 8px 0; cursor: pointer; }
 .rate button[aria-pressed="true"] { color: var(--bg); background: var(--yes); border-color: var(--yes); }
@@ -52,7 +54,7 @@ kbd { font-family: var(--numbers); font-size: 13px; color: var(--fg); border: 1p
 @media (max-width: 480px) { .legend { margin-left: 0; margin-right: 0; } .transport { flex-wrap: wrap; } .bar { flex-basis: 100%; order: 3; } }
 </style>
 <main>
-  <h1>the fly, taste round __ROUND__</h1>
+  <h1>__HEAD__</h1>
   <p>__COUNT__ flies play the same minute. Press play, then switch with <kbd>1</kbd> to <kbd>__COUNT__</kbd> or by clicking a letter. The switch lands on the same spot in the loop, so you hear only the fly change. <kbd>space</kbd> stops and starts.</p>
   <div class="flies" id="flies"></div>
   <div class="transport">
@@ -63,19 +65,19 @@ kbd { font-family: var(--numbers); font-size: 13px; color: var(--fg); border: 1p
   <div class="legend"><span>a newborn fly, first 30 s</span><span>the same fly after a minute, last 30 s</span></div>
   <div class="answer">
     <p>Mark each fly, then copy the line and paste it into the thread.</p>
-    <output id="out">round __ROUND__: nothing marked yet</output>
+    <output id="out">__ROUND__: nothing marked yet</output>
     <div class="row"><button class="go" id="copy" type="button">copy</button><span class="time" id="copied"></span></div>
   </div>
 </main>
 <script>
-const ROUND = __ROUND__, CLIPS = __CLIPS__;
+const ROUND = '__ROUND__', CLIPS = __CLIPS__, CAPS = __CAPS__;
 const letters = Object.keys(CLIPS), marks = {};
 let ctx = null, buffers = {}, gains = {}, sources = [], playing = false, startedAt = 0, offset = 0, current = letters[0], length = 60;
 const $ = id => document.getElementById(id);
 const flies = $('flies');
 letters.forEach((L, i) => {
   const d = document.createElement('div'); d.className = 'fly' + (i === 0 ? ' on' : ''); d.id = 'fly-' + L;
-  d.innerHTML = `<button class="pick" type="button" id="pick-${L}" aria-label="listen to fly ${L}">${L}</button>
+  d.innerHTML = `<button class="pick" type="button" id="pick-${L}" aria-label="listen to fly ${L}">${L}</button><span class="cap">${CAPS[L] || ''}</span>
     <div class="rate"><button type="button" id="yes-${L}" aria-pressed="false">yes</button><button type="button" id="ok-${L}" aria-pressed="false">ok</button><button type="button" class="no" id="no-${L}" aria-pressed="false">no</button></div>`;
   flies.appendChild(d);
   $('pick-' + L).onclick = () => choose(L);
@@ -85,7 +87,7 @@ function mark(L, m) {
   marks[L] = marks[L] === m ? undefined : m;
   for (const k of ['yes', 'ok', 'no']) $(k + '-' + L).setAttribute('aria-pressed', String(marks[L] === k));
   const parts = letters.filter(x => marks[x]).map(x => x + ' ' + marks[x]);
-  $('out').textContent = 'round ' + ROUND + ': ' + (parts.length ? parts.join(', ') : 'nothing marked yet');
+  $('out').textContent = ROUND + ': ' + (parts.length ? parts.join(', ') : 'nothing marked yet');
   $('copied').textContent = '';
 }
 async function load() {
@@ -139,24 +141,30 @@ $('copy').onclick = async () => {
 '''
 
 
-def main(number, renders, out):
-    number = int(number)
-    r = json.load(open(os.path.join(HERE, 'rounds', f'{number:02d}.json')))
-    w = wave.open(os.path.join(HERE, 'loops', r['loop']))
-    period = w.getnframes() / w.getframerate()
-    n = r['repeat']
+def build(files, period, n, out, title, head, tag, caps=None):
+    """files: {letter: wav}. Keeps the first 8 and last 8 of n passes (each `period` seconds)."""
     clips = {}
     with tempfile.TemporaryDirectory() as tmp:
-        for L in sorted(r['variants']):
-            src = os.path.join(renders, f'round{number:02d}-{L}.wav')
+        for L in sorted(files):
+            src = files[L]
             mp3 = os.path.join(tmp, L + '.mp3')
             f = (f'[0:a]atrim=start=0:end={8 * period},asetpts=PTS-STARTPTS[a];'
                  f'[0:a]atrim=start={(n - 8) * period}:end={n * period},asetpts=PTS-STARTPTS[b];[a][b]concat=n=2:v=0:a=1')
             subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', src, '-filter_complex', f, '-c:a', 'libmp3lame', '-b:a', '160k', mp3], check=True)
             clips[L] = base64.b64encode(open(mp3, 'rb').read()).decode()
-    page = PAGE.replace('__ROUND__', str(number)).replace('__COUNT__', str(len(clips))).replace('__CLIPS__', json.dumps(clips))
+    page = (PAGE.replace('__ROUND__', tag).replace('__TITLE__', title).replace('__HEAD__', head).replace('__COUNT__', str(len(clips)))
+            .replace('__CAPS__', json.dumps(caps or {})).replace('__CLIPS__', json.dumps(clips)))
     open(out, 'w').write(page)
     print(out, round(len(page) / 1e6, 1), 'MB')
+
+
+def main(number, renders, out):
+    number = int(number)
+    r = json.load(open(os.path.join(HERE, 'rounds', f'{number:02d}.json')))
+    w = wave.open(os.path.join(HERE, 'loops', r['loop']))
+    files = {L: os.path.join(renders, f'round{number:02d}-{L}.wav') for L in r['variants']}
+    build(files, w.getnframes() / w.getframerate(), r['repeat'], out, f'Fly Taste Round {number}',
+          f'the fly, taste round {number}', f'round {number}')
 
 
 if __name__ == '__main__':

@@ -238,7 +238,10 @@ void Engine::process (float* left, float* right, int numSamples, const HostTime&
         if (outsideOn)
             echo.setTouch (outside);
         else if (flyItch)
+        {
+            fly.setClock (beat, bpm);
             echo.setTouch (fly.process (l, r));
+        }
         else if (handItch)
             echo.setTouch (hand.process (attack));
 

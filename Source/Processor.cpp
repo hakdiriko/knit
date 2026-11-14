@@ -306,6 +306,7 @@ void DendriteProcessor::publish()
     d.flyThrowing.store (v.fly.throwing, relaxed);
     d.flyFrozen.store (v.fly.frozen, relaxed);
     d.flyAwake.store (v.flyAwake, relaxed);
+    d.flyMove.store (v.fly.move, relaxed);
 
     float level = 0.0f;
     bool thrown = false;

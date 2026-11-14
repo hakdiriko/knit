@@ -64,6 +64,7 @@ public:
         std::atomic<float> flyJump { 0.0f }, flySemitones { 0.0f }, flyScratch { 0.0f }, flyScratchHz { 1000.0f }, flyTurn { 0.0f };
         std::atomic<float> flyArousal { 0.0f }, flyFatigue { 0.0f }, flyFear { 0.0f }, flyMemory { 1.0f };
         std::atomic<bool> flyThrowing { false }, flyFrozen { false }, flyAwake { false };
+        std::atomic<int> flyMove { 0 }; // dendrite::Fly::Move
 
         // onsets: each one starts a new tree in the window
         struct Onset { float level = 0.0f; bool thrown = false; };

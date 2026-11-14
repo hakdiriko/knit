@@ -2,7 +2,7 @@
 
 How dendrite's itch became a real fly's brain, how it works, and where it stands. It is written so another agent, thread or a separate product (Hakan has floated selling the fly as an add-on) can take it over cold. Keep it current: when the fly changes, change this file in the same commit.
 
-Last updated: 2026-11-14, version 2.3.0. Main holds 2.2.1 (PR #9 and #10 merged on 2026-11-14). The fly is now worked on in its own project ("fly"); standard dendrite (echo, window) continues in the other project. The fly project touches only `Fly*`, `FlyData*`, `FlyBrain*`, `tools/fly/` and the small hooks that connect them (Engine, Echo's Touch, Processor's fly state).
+Last updated: 2026-11-14, version 2.4.0 (section 5b is new: read it before the Reflexes section, which describes the 2.3 body, still there behind `setMusical (false)`). Main holds 2.2.1 (PR #9 and #10 merged on 2026-11-14). The fly is now worked on in its own project ("fly"); standard dendrite (echo, window) continues in the other project. The fly project touches only `Fly*`, `FlyData*`, `FlyBrain*`, `tools/fly/` and the small hooks that connect them (Engine, Echo's Touch, Processor's fly state).
 
 ## 0. Start here (first hour for whoever takes it over)
 
@@ -204,6 +204,18 @@ Spikes propagate through a CSR matrix (`rowStart`, `target`, and `w`, a mutable 
 - Since 2.3 they are **saved with the set** (`Fly::Memory`, 57,560 bytes, about 77 KB as base64 in a `fly` child of the state): every plastic synapse as a uint16 share of its birth weight, plus arousal, fatigue, the feeling habit and `lived` (seconds of inner life). Activity, senses and reflexes are not saved; a fly brought back wakes rested and remembering.
 - The audio thread seals it into a seqlock vault about every 2 s (`Processor::keepFly`); a loaded memory waits in `flyArriving` and is adopted between two blocks, as the creature's life is. An invalid or missing one leaves the current fly.
 - Right-click the brain (small or drawer): "a new fly (it forgets what it learned)" calls `Processor::forgetFly()`, done at the next block.
+
+### 5b. The body in time (2.4, the default)
+
+Hakan's goal for the fly: **precise in time, moving with the music, and more than one tape trick.** Measured by `tools/fly/goal.py` (see DECISIONS 2026-11-14).
+
+- `Fly::setClock (beat, bpm)` gets the host's position every sample (Engine). `reflexes()` finds the 16th lines (`floor (beat * 4)` changing).
+- The neurons arm a move (same escape threshold as before, plus a rest of `4 * (6 - 5 * awake)` 16ths since the last move ended). The move starts on the next line: any 16th when awake > 0.75, else an 8th; big moves always an 8th.
+- `startMove()` picks one of five moves from size, fear (down with probability fear) and arousal: hop, leap, duck, dive, rush. Each is up to three `Leg`s: a slope of `stretch` (heads' distance against the grid's, `speed = 1 / stretch`) per 16th, a length in 16ths, and an exact end value. Straight slides give constant pitch ratios: dotted head `1 - 3 * slope`, quarter head `1 - 4 * slope`. Holds sit at 1/2 (double time) or 2 (half time).
+- Throw lengths are 1, 2 or 3 16ths; freezes start on a beat and last 2 or 4 16ths.
+- The band (scratch) is sampled every 16th and held (off under 0.12); the lean every 8th; the feed every beat.
+- `Doing::move` and the fly log's 14th column carry the move.
+- Ideas not built yet: more outputs from the connectome as moves (the moonwalker neurons for a reversed echo, courtship song neurons for a tone of its own; both need a new cut, see section 4), bigger moves saved for bar and phrase ends, the band stepping through pitches of the music's key.
 
 ### Reflexes: neurons to Touch (`reflexes()`)
 

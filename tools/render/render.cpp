@@ -15,6 +15,7 @@
 //                [--heads]  (2.0a: the creature fires the heads instead of the fly)
 //                [--fly-log fly.csv]  (every 256 samples: what the fly does, its moods, memory, feeling)
 //                [--still]  (the 2.1.0 fly: no restlessness, moods or learning)
+//                [--loose]  (the 2.3 fly: moves off the grid, one sine lurch of the tape)
 //                [--taste learn=0.06,forget=600,restless=10,jumpy=1,scratch=0.85,lurch=0.4,lean=0.35,calm=40]
 //                         (the fly's temperament, for taste training; any subset)
 //                [--hand]  (2.1 sketch: the itch as a motif on the echo's controls, not the heads)
@@ -157,6 +158,7 @@ int main (int argc, char** argv)
     std::string flyLog;
     bool still = false;
     std::string tasteSpec;
+    bool loose = false;
     size_t onePass = 0;
     unsigned long long genome = 1;
     std::vector<std::pair<double, double>> throws;
@@ -181,6 +183,7 @@ int main (int argc, char** argv)
         else if (k == "--fly-log") flyLog = next();
         else if (k == "--still") still = true;
         else if (k == "--taste") tasteSpec = next();
+        else if (k == "--loose") loose = true;
         else if (k == "--hand-log") handLog = next();
         else if (k == "--touch") touchFile = next();
         else if (k == "--loop-transport") loopTransport = true;
@@ -226,6 +229,7 @@ int main (int argc, char** argv)
     engine.useHand (handMode);
     engine.useFly (! handMode && ! headsMode && touchFile.empty());
     engine.itchFly().setInnerLife (! still);
+    engine.itchFly().setMusical (! loose);
     {
         auto t = engine.itchFly().getTaste();
         std::stringstream spec (tasteSpec);
@@ -238,7 +242,7 @@ int main (int argc, char** argv)
             const float value = std::stof (item.substr (eq + 1));
             float* field = key == "learn" ? &t.learn : key == "forget" ? &t.forget : key == "restless" ? &t.restless
                          : key == "jumpy" ? &t.jumpy : key == "scratch" ? &t.scratch : key == "lurch" ? &t.lurch
-                         : key == "lean" ? &t.lean : key == "calm" ? &t.calm : nullptr;
+                         : key == "eyesTire" ? &t.eyesTire : key == "eyesBack" ? &t.eyesBack : key == "lean" ? &t.lean : key == "calm" ? &t.calm : nullptr;
             if (field == nullptr)
             {
                 std::fprintf (stderr, "unknown taste: %s\n", key.c_str());
@@ -324,9 +328,9 @@ int main (int argc, char** argv)
         if (flog != nullptr && pos % 256 == 0)
         {
             const auto& d = engine.view().fly;
-            std::fprintf (flog, "%.4f,%.3f,%.3f,%d,%d,%.3f,%.1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.3f\n", seconds, d.jump, d.semitones,
+            std::fprintf (flog, "%.4f,%.3f,%.3f,%d,%d,%.3f,%.1f,%.3f,%.3f,%.3f,%.4f,%.4f,%.3f,%d\n", seconds, d.jump, d.semitones,
                           d.throwing ? 1 : 0, d.frozen ? 1 : 0, d.scratch, d.scratchHz, d.turn, d.arousal, d.fatigue,
-                          d.memory, d.feeling, d.fear);
+                          d.memory, d.feeling, d.fear, d.move);
         }
         if (engine.view().itching && ! itching)
         {

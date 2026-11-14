@@ -64,17 +64,21 @@ public:
     double lived() const noexcept { return livedSec; }
 
     // Its temperament: the few numbers taste training moves (tools/fly/taste/). The defaults are
-    // the fly as it ships; the wiring itself never changes.
+    // where Hakan's rounds 1 and 2 put them (2026-11-14; before: 0.06, 600, 10, 1, 0.85, 0.4, 0.35, 40).
+    // jumpy and lurch are near their old values for 2.4: the rounds asked for fewer moves when every move was the same wobble.
+    // lurch: since 2.4, how readily a jump becomes a big move (the intervals themselves are fixed).
     struct Taste
     {
-        float learn = 0.06f;     // how fast what hurt it becomes fearful
-        float forget = 600.0f;   // seconds to forget
-        float restless = 10.0f;  // random kicks per neuron per second
-        float jumpy = 1.0f;      // >1 jumps more easily
-        float scratch = 0.85f;   // how hard it grooms the band
+        float learn = 0.075f;    // how fast what hurt it becomes fearful
+        float forget = 640.0f;   // seconds to forget
+        float restless = 7.2f;   // random kicks per neuron per second
+        float jumpy = 0.8f;      // >1 jumps more easily
+        float scratch = 0.95f;   // how hard it grooms the band
         float lurch = 0.4f;      // octaves of tape at a full jump
-        float lean = 0.35f;      // how far it leans the space
-        float calm = 40.0f;      // seconds for arousal to settle
+        float lean = 0.45f;      // how far it leans the space
+        float eyesTire = 4.0f;   // how fast its eyes tire of hits (use per second at full drive; 12 and 10 s until 2.4, when a steady groove blinded it)
+        float eyesBack = 6.0f;   // seconds for them to recover
+        float calm = 42.0f;      // seconds for arousal to settle
     };
     void setTaste (const Taste& t) noexcept
     {
@@ -85,6 +89,19 @@ public:
         taste.calm = std::max (taste.calm, 1.0f);
     }
     const Taste& getTaste() const noexcept { return taste; }
+
+    // The song's clock (2.4): the beat now, in quarter notes, and the tempo. Its brain decides what
+    // to do and how hard; its body does it on the grid, as a real fly's steering commands only take
+    // hold at one phase of the wingbeat (the halteres keep that time). Here the song is the wingbeat.
+    void setClock (double beat, double bpm) noexcept
+    {
+        beatNow = beat;
+        bpmNow = bpm;
+    }
+    // false: the 2.3 fly (moves whenever its neurons say so, one sine lurch of the tape)
+    void setMusical (bool on) noexcept { musical = on; }
+    // what its body can do with the tape; each bends the repeats by exact intervals, for exact note values
+    enum Move { none, hop, leap, duck, dive, rush };
 
     // false: the 2.1.0 fly (no restlessness, no moods, no learning), for comparison
     void setInnerLife (bool on) noexcept { innerLife = on; }
@@ -110,6 +127,7 @@ public:
         float memory = 1.0f;                       // the plastic synapses' strength against at birth
         float feeling = 0.0f;                      // its MBONs: -1 keep away .. 1 come closer
         float fear = 0.0f;                         // 0..1: how much of what it smells now once hurt
+        int move = 0;                              // which Move it is in the middle of
     };
     const Doing& doing() const noexcept { return now; }
     uint16_t takeSpikes (int neuron) noexcept { return spikes[(size_t) neuron].exchange (0, std::memory_order_relaxed); }
@@ -201,6 +219,21 @@ private:
     static constexpr float fearFull = 0.35f; // this much weaker counts as full fear
     bool busyNow = false; // jumping or scratching, with hysteresis (for keep's diary and the lamps)
     Touch target, touch;
+
+    // its body in time (2.4)
+    void startMove (float size, float f) noexcept;
+    bool musical = true;
+    double beatNow = 0.0, bpmNow = 120.0;
+    long long lastTick = -1;
+    bool armed = false;
+    float armedSize = 0.0f, armedFear = 0.0f;
+    struct Leg { float slope = 0.0f, left = 0.0f, end = 1.0f; }; // per 16th: how the heads' distance changes, for how long, where it ends
+    std::array<Leg, 3> legs {};
+    int legCount = 0, legAt = 0, moveNow = none;
+    float stretch = 1.0f, moveSize = 0.0f; // the heads' distance against the grid's (1 / tape speed)
+    float sinceMove16 = 64.0f;
+    float throw16 = 0.0f, freezeIn16 = -1.0f, freeze16 = 0.0f;
+    float heldBand = 0.0f, heldBandHz = 1000.0f, heldLean = 0.0f, heldFeed = 0.0f;
     float touchGlide = 0.005f;
     Doing now;
 };
