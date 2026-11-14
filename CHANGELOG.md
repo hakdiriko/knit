@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.4.0 (the fly keeps time)
+
+Hakan: "it feels like their only function is to fuck around... the goal of the fly should be being precise, time-wise... and that thing it does only with the tape drives me nuts."
+
+- **The song is its wingbeat.** A real fly's steering commands only take hold at one phase of each wingbeat; its halteres keep that time. Now Live's tempo is that clock. The brain still decides what to do and how hard, from the music, but the body does it on the grid: every move starts on a 16th line (an 8th when it is half awake) and lasts an exact note value. Measured on two loops: 100% of its moves, throws and scratch changes land within 10 ms of a line (before: 29%).
+- **Five moves instead of one wobble.** The tape's heads now slide in straight lines, so each slide bends the repeats by one exact interval for one exact note value:
+  - **hop**: up an octave for a 16th, back over an 8th.
+  - **leap**: up an octave and a fifth for a 16th, back down through an octave over a dotted 8th.
+  - **duck**: down an octave for an 8th, back up in a 16th.
+  - **rush** (when it is wound up): up an octave, then the echo runs in double time for a beat or two, then falls back.
+  - **dive** (when it is afraid): down an octave over a half note into half time, it holds its breath for a beat, stays, then climbs back over a quarter.
+  Its fear and its arousal choose the move, so the vocabulary changes as it gets to know the loop.
+- **The scratch, the lean and the feed step on the lines** (16ths, 8ths and beats) and hold between them, instead of drifting.
+- **It leaves room.** After a move it leaves the music alone: about a bar at the default itch, a beat at 1/4 bar.
+- **Its eyes no longer go numb on a full groove.** With a kick, rim and hats under the keys it used to jump once in 48 bars; now about once in five bars (its looming sense tires more slowly and recovers faster).
+- Its temperament starts from where the taste rounds 1 and 2 put it (learns a little faster, less restless, scratches a little harder, leans a little further).
+- The drawer's line names the move: "leaps", "dives  half time", "rushes  double time".
+- Tools: `tools/fly/goal.py` measures the goal on a render (on the grid, variety, how alike two phrases are, how much room it leaves); `build/render --loose` plays the 2.3 fly for comparison.
+
+## 2.3.0 (the fly remembers)
+
+- **The fly is saved with your set.** What it has learned (all 28,761 synapses its fear lives in) and its moods (wound up, tired, its feeling) go into the Live set, about 77 KB. Reopen the set and it is the same fly, still afraid of what hurt it, rested but remembering. Sets from before 2.3 open with a newborn fly, as before.
+- **A new fly, when you want one:** right-click the fly's brain, small or in the drawer, and choose "a new fly". It forgets everything and calms down. Nothing else changes.
+- Tools: the fly's temperament (`Fly::Taste`: how fast it learns and forgets, how restless and jumpy it is, how hard it scratches, lurches and leans, how fast it calms) can be set in the renderer, and `tools/fly/taste/taste.py` runs taste-training rounds: blind variants on your loop, your pick moves it. The plug-in sounds exactly as before.
+
 ## 2.2.1
 
 - **The bitcrush is gone.** The fly's brain moves in 0.5 ms steps, and the echo's tape speed jumped with it every step, so its repeats crackled like a bitcrusher whenever it jumped or leaned (since 2.1). Now the echo glides to what the fly wants, sample by sample (about 4 ms). On Hakan's loop the grit above 10 kHz drops by 30 dB, to where it is with the itch off. Turning the itch off also glides back instead of snapping.

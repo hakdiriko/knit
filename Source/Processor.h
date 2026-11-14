@@ -64,6 +64,7 @@ public:
         std::atomic<float> flyJump { 0.0f }, flySemitones { 0.0f }, flyScratch { 0.0f }, flyScratchHz { 1000.0f }, flyTurn { 0.0f };
         std::atomic<float> flyArousal { 0.0f }, flyFatigue { 0.0f }, flyFear { 0.0f }, flyMemory { 1.0f };
         std::atomic<bool> flyThrowing { false }, flyFrozen { false }, flyAwake { false };
+        std::atomic<int> flyMove { 0 }; // dendrite::Fly::Move
 
         // onsets: each one starts a new tree in the window
         struct Onset { float level = 0.0f; bool thrown = false; };
@@ -73,6 +74,8 @@ public:
 
     // The fly's neurons, for the window: how often each fired since the window last asked.
     uint16_t takeFlySpikes (int neuron) noexcept { return engine.itchFly().takeSpikes (neuron); }
+    // A new fly: it forgets what it learned and its moods (from the window; done at the next block).
+    void forgetFly() noexcept { flyForget.store (true, std::memory_order_release); }
 
     // keep: the last minute, on tape, and a diary of what happened (read by the window)
     dendrite::keep::Keep keep;
@@ -107,6 +110,22 @@ private:
     std::atomic<int> arrivingState { 0 }; // 0 nothing, 1 being written, 2 ready, 3 being adopted
     uint64_t keptAge = 0;
     uint32_t keptItches = 0;
+
+    // The fly's memory crosses threads the same way: sealed by the audio thread about every two
+    // seconds (and at once after it adopts or forgets), read by the message thread to save it.
+    using FlyMemory = dendrite::Fly::Memory;
+    void keepFly (int samples) noexcept;  // audio thread
+    void readFly (FlyMemory&) const;      // message thread
+    struct FlyVault
+    {
+        std::atomic<uint32_t> seq { 0 };
+        FlyMemory memory;
+    };
+    std::unique_ptr<FlyVault> flyVault = std::make_unique<FlyVault>();
+    std::unique_ptr<FlyMemory> flyArriving = std::make_unique<FlyMemory>();
+    std::atomic<int> flyArrivingState { 0 }; // 0 nothing, 1 being written, 2 ready, 3 being adopted
+    std::atomic<bool> flyForget { false };
+    int flyUntilSeal = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DendriteProcessor)
 };

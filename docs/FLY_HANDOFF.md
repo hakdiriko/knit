@@ -2,7 +2,7 @@
 
 How dendrite's itch became a real fly's brain, how it works, and where it stands. It is written so another agent, thread or a separate product (Hakan has floated selling the fly as an add-on) can take it over cold. Keep it current: when the fly changes, change this file in the same commit.
 
-Last updated: 2026-11-13, version 2.2.0 (branch `claude/project-thread-vbjekz`, PR #10, not merged yet).
+Last updated: 2026-11-14, version 2.4.0 (section 5b is new: read it before the Reflexes section, which describes the 2.3 body, still there behind `setMusical (false)`). Main holds 2.2.1 (PR #9 and #10 merged on 2026-11-14). The fly is now worked on in its own project ("fly"); standard dendrite (echo, window) continues in the other project. The fly project touches only `Fly*`, `FlyData*`, `FlyBrain*`, `tools/fly/` and the small hooks that connect them (Engine, Echo's Touch, Processor's fly state).
 
 ## 0. Start here (first hour for whoever takes it over)
 
@@ -201,7 +201,21 @@ Spikes propagate through a CSR matrix (`rowStart`, `target`, and `w`, a mutable 
 
 **Persistence:**
 - Memory and moods survive `prepare()` and `rest()`; `forget()` resets them.
-- They are **not saved** with the set. Reloading gives a newborn fly.
+- Since 2.3 they are **saved with the set** (`Fly::Memory`, 57,560 bytes, about 77 KB as base64 in a `fly` child of the state): every plastic synapse as a uint16 share of its birth weight, plus arousal, fatigue, the feeling habit and `lived` (seconds of inner life). Activity, senses and reflexes are not saved; a fly brought back wakes rested and remembering.
+- The audio thread seals it into a seqlock vault about every 2 s (`Processor::keepFly`); a loaded memory waits in `flyArriving` and is adopted between two blocks, as the creature's life is. An invalid or missing one leaves the current fly.
+- Right-click the brain (small or drawer): "a new fly (it forgets what it learned)" calls `Processor::forgetFly()`, done at the next block.
+
+### 5b. The body in time (2.4, the default)
+
+Hakan's goal for the fly: **precise in time, moving with the music, and more than one tape trick.** Measured by `tools/fly/goal.py` (see DECISIONS 2026-11-14).
+
+- `Fly::setClock (beat, bpm)` gets the host's position every sample (Engine). `reflexes()` finds the 16th lines (`floor (beat * 4)` changing).
+- The neurons arm a move (same escape threshold as before, plus a rest of `4 * (6 - 5 * awake)` 16ths since the last move ended). The move starts on the next line: any 16th when awake > 0.75, else an 8th; big moves always an 8th.
+- `startMove()` picks one of five moves from size, fear (down with probability fear) and arousal: hop, leap, duck, dive, rush. Each is up to three `Leg`s: a slope of `stretch` (heads' distance against the grid's, `speed = 1 / stretch`) per 16th, a length in 16ths, and an exact end value. Straight slides give constant pitch ratios: dotted head `1 - 3 * slope`, quarter head `1 - 4 * slope`. Holds sit at 1/2 (double time) or 2 (half time).
+- Throw lengths are 1, 2 or 3 16ths; freezes start on a beat and last 2 or 4 16ths.
+- The band (scratch) is sampled every 16th and held (off under 0.12); the lean every 8th; the feed every beat.
+- `Doing::move` and the fly log's 14th column carry the move.
+- Ideas not built yet: more outputs from the connectome as moves (the moonwalker neurons for a reversed echo, courtship song neurons for a tone of its own; both need a new cut, see section 4), bigger moves saved for bar and phrase ends, the band stepping through pitches of the music's key.
 
 ### Reflexes: neurons to Touch (`reflexes()`)
 
@@ -283,7 +297,15 @@ Reports for Hakan are in the project files:
 
 ## 9. Training: status and plan
 
-**Not started.** What exists is live learning (the fly's own aversive plasticity during use).
+**Round 1 is out (2026-11-14), waiting for Hakan's pick.** It ran on `tools/fly/taste/loops/fly-keys_127bpm.wav` (made by `make_keys.py`, because the playground's loops folder was empty): six 90 s renders, in `C:\Claude-Playground\dendrite\listening\fly-taste-01\` on his computer and in the project files under `fly/taste/round01/`. Record his answer with `taste.py pick 1 <letter>`.
+
+**The workflow since round 3:** Hakan found six 90 s files too slow. Now a round is 4 variants (`--n 4`) and `tools/fly/taste/player.py NN <renders> out.html` builds one page (published as an Artifact) where all flies play the same 60 s (first 8 and last 8 passes of the loop), keys 1 to 4 switch between them at the same spot, and yes/ok/no marks make one line he pastes back. Rounds 1 and 2 are picked (see `rounds/*.json` with his words): he wants a calm fly with few, big tape bends and no saturating fear; the shipped 2.2 fly was "not quite my tempo".
+
+**Found while making the loop:** on dense material (the same keys with a kick on 1 and 3, a rim and eighth-note hats) the fly jumped once in 90 s, against 25 times on the sparse keys alone. Its looming detectors habituate (use 12 per second, 10 s to recover), so a steady groove blinds its eyes and only the scratch is left. This is the next thing to fix after the taste rounds settle: candidates are habituating each eye band to its own rhythm (so only what breaks the pattern looms) or a slower, shallower tiring.
+
+Tooling: `Fly::Taste` holds the eight numbers taste training moves (learn, forget, restless, jumpy, scratch, lurch, lean, calm; defaults = the shipped fly, renders bit-identical). `build/render --taste learn=0.1,jumpy=1.2` sets any of them. `tools/fly/taste/taste.py round <loop.wav> <outdir>` renders 6 blind variants (one is the current centre) and logs them in `tools/fly/taste/rounds/NN.json`; `taste.py pick NN <letter> [<letter>]` records Hakan's pick and moves `centre.json` 60% toward it in log space, the spread shrinking by 0.8 each round. When the centre settles, bake it into the `Taste` defaults.
+
+Before 2.3: What exists is live learning (the fly's own aversive plasticity during use).
 
 The planned taste training (agreed with Hakan as the next phase):
 - the wiring stays fixed;
@@ -299,7 +321,7 @@ A preference model (Bradley-Terry over his picks) or a simple evolution strategy
 
 ## 10. Open problems and next steps
 
-1. **Memory not saved with the set.** The creature (2.0a) saved its life in the plug-in state. The fly could save its 28,761 plastic weights (about 115 KB as float, or quantised) plus its moods. This was asked of Hakan on 2026-11-13; no answer yet.
+1. ~~Memory not saved with the set.~~ Done in 2.3.0 (Hakan said yes on 2026-11-14), with a right-click for a new fly.
 2. **Fear saturates on one loop over long sessions** (at the current rate, toward mostly dives after several minutes). Forgetting brings it back when the music changes. Watch whether he finds the late phase repetitive.
 3. **The scratch's amount** still follows the grooming DN's timing, which is locked to the loop (about 90% alike pass to pass). Its place now varies. A sequential grooming model (Seeds et al. 2014: hierarchical suppression) would be the biological way to vary it.
 4. **The antennal lobe** is bypassed (it runs away in this model). A proper fix: add the local inhibitory neurons with weights scaled, or a gain-control step on the ORNs.
