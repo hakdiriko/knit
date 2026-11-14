@@ -180,3 +180,22 @@ Run it before every hand-over. **Zero BLOWUP and SILENT flags is a hard requirem
 - [ ] pluginval passes at strictness 10.
 - [ ] UI: animation is smooth, every knob shows its value on hover, double-click resets a knob to default, and the visuals react to audio.
 - [ ] Preset names evoke places and feelings, not specs.
+
+---
+
+## 11. Mono-safe space (learned building dendrite 1.0)
+
+- **Width lives only in the Side.** Build it from the Mid (pan k·sinθ·M, a 90° allpass pair for spread) and write it into the Side; the Mid must never read the Side. Then the mono sum is the dry plus a mono echo, whatever space does.
+- **Any gain computed from the Side must not touch the Mid.** Loop and output ceilings run on Mid and Side separately; one linked gain would let space change the mono sum.
+- **Coherent vs. decorrelated build-up.** Undiffused, the Side recirculates in phase and grows like the Mid. Diffused, each pass adds in power, not amplitude, so on steady tones the Side drops several dB. Raise the Side output where diffusion fades in, or width dips as the knob goes up.
+- **Never switch an allpass chain in.** With a small coefficient a Schroeder allpass is a pure delay, so switching it on jumps the Side in time. Run it always and crossfade.
+- **Ceilings follow what was played.** Feedback and wet output are capped relative to the recent input peak (not a fixed level), so endless and throws stay as big as the playing and never lean on the safety limiter.
+- **Check:** the audit's MONO_BREAK compares the echo's mono sum at space 0 and at the default after a gain match; keep it under −30 dB (1.0 measures −139 to −141 dB).
+
+
+## 12. Echo loops (learned on dendrite 1.1)
+
+- An allpass delays what it smears. A Schroeder allpass's energy arrives at its delay length, so diffusers inside a feedback loop make every pass late by their total length (4.7 + 7.9 + 11.3 + 16.9 ms = 41 ms per pass in 0.5 and 1.0), and a tempo-synced echo drifts off the grid with every generation. Keep loop diffusers short, and read the heads earlier by their total length.
+- Two heads in one loop add coherently: paths with the same number of dotted and quarter passes land together. With dotted + quarter gains summing above 1, a single hit grows until a ceiling holds it, and the band with the least loss per pass takes over the tail. A dub setting should sum just under 1. Let only the "drown" and "endless" regions regenerate.
+- What a regenerating tail turns into is set by the per-pass response, not the first repeat. A 0.2 dB edge per pass is 4 dB after 20 passes. Thin the low mids a little on every pass (a two-pole high-pass, a gentle bell), or the tail settles into a low-mid drone.
+- Measure the tail, not the repeat: render a click and look at the long-term spectrum of the wet and at the energy by second. A growing tail, or a hump in the tail's spectrum, is a loop problem.

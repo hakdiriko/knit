@@ -1,3 +1,6 @@
+# Builds dendrite on Windows and Linux for every push (macOS too when run by hand), checks it with
+# pluginval (strictness 10) and, on Linux, with the discovery audit. Each download carries the
+# one-page manual next to the plug-in.
 name: build
 
 on:
@@ -5,28 +8,25 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  PLUGINVAL_VERSION: v1.0.4
-  PLUGINVAL_STRICTNESS: 10
-  ARTEFACTS: build/dendrite_artefacts/Release
+  PLUGINVAL_TAG: v1.0.4
+  PLUGINVAL_FALLBACK: v1.0.3 # used only if GitHub fails to serve PLUGINVAL_TAG's zip
+  BUNDLE_DIR: build/dendrite_artefacts/Release
+  MANUAL: docs/manual/dendrite-manual.pdf
 
 jobs:
-  build:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  plugin:
+    name: ${{ matrix.os-name }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: windows
-            os: windows-2022
-          - name: macos
-            os: macos-14
-          - name: linux
-            os: ubuntu-24.04
+        # While Hakan tests on Windows, pushes build Windows and Linux (the audit) only.
+        # Run the workflow by hand (workflow_dispatch) to add the Mac build.
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"macos","runner":"macos-15","pluginval-zip":"pluginval_macOS.zip","pluginval-bin":"./pluginval.app/Contents/MacOS/pluginval"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]' || '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]') }}
     defaults:
       run:
         shell: bash
@@ -34,54 +34,72 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Linux dependencies
+      - name: Linux build packages
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxext-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
+          # The runner's DNS for the Ubuntu archive can drop out for minutes; try the whole install up to 4 times.
+          pkgs="libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libxi-dev libegl-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb"
+          for attempt in 1 2 3 4; do
+            sudo apt-get update || true
+            if sudo apt-get install -y $pkgs; then exit 0; fi
+            echo "apt attempt $attempt failed; waiting before the next one"
+            sleep 60
+          done
+          exit 1
 
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build
-        run: cmake --build build --config Release --parallel 4
-
-      - name: Download pluginval
+      - name: Configure and build
         run: |
-          case "${{ runner.os }}" in
-            Windows) zip=pluginval_Windows.zip; bin=./pluginval.exe ;;
-            macOS)   zip=pluginval_macOS.zip;   bin=./pluginval.app/Contents/MacOS/pluginval ;;
-            Linux)   zip=pluginval_Linux.zip;   bin=./pluginval ;;
-          esac
-          curl -sSLf -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${zip}"
-          if [ "${{ runner.os }}" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
-          echo "PLUGINVAL=$bin" >> "$GITHUB_ENV"
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release --parallel 4
 
-      - name: pluginval (VST3)
+      # GitHub's release downloads can fail for minutes at a time (504), so keep the zips in
+      # the Actions cache once fetched, and fall back to the previous pluginval if needed.
+      - name: Cache pluginval
+        uses: actions/cache@v4
+        with:
+          path: pluginval-cache
+          key: pluginval-${{ runner.os }}-${{ env.PLUGINVAL_TAG }}-${{ env.PLUGINVAL_FALLBACK }}
+
+      - name: Fetch pluginval
         run: |
-          cmd=("$PLUGINVAL" --strictness-level "$PLUGINVAL_STRICTNESS" --validate-in-process
-               --timeout-ms 600000 --validate "$ARTEFACTS/VST3/Dendrite.vst3")
-          if [ "${{ runner.os }}" = "Linux" ]; then xvfb-run -a "${cmd[@]}"; else "${cmd[@]}"; fi
+          mkdir -p pluginval-cache
+          fetch() {
+            [ -s "pluginval-cache/$1.zip" ] && return 0
+            curl -sSLf --retry 10 --retry-delay 15 --retry-all-errors -o "pluginval-cache/$1.part" \
+              "https://github.com/Tracktion/pluginval/releases/download/$1/${{ matrix.pluginval-zip }}" \
+              && mv "pluginval-cache/$1.part" "pluginval-cache/$1.zip"
+          }
+          if fetch "$PLUGINVAL_TAG"; then use="$PLUGINVAL_TAG"
+          else echo "::warning::pluginval $PLUGINVAL_TAG could not be downloaded; validating with $PLUGINVAL_FALLBACK"; fetch "$PLUGINVAL_FALLBACK"; use="$PLUGINVAL_FALLBACK"; fi
+          rm -f pluginval-cache/*.part
+          cp "pluginval-cache/$use.zip" pluginval.zip
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z x -y pluginval.zip > /dev/null; else unzip -q -o pluginval.zip; fi
 
-      - name: auval + pluginval (AU)
+      - name: Validate VST3
+        run: |
+          run=()
+          if [ "$RUNNER_OS" = "Linux" ]; then run=(xvfb-run -a); fi
+          "${run[@]}" ${{ matrix.pluginval-bin }} --strictness-level 10 --validate-in-process --timeout-ms 600000 \
+            --validate "$BUNDLE_DIR/VST3/dendrite.vst3"
+
+      - name: Validate AU
         if: runner.os == 'macOS'
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R "$ARTEFACTS/AU/Dendrite.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "$BUNDLE_DIR/AU/dendrite.component" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
           auval -strict -v aufx Vibr Hakd
-          "$PLUGINVAL" --strictness-level "$PLUGINVAL_STRICTNESS" --validate-in-process \
-            --timeout-ms 600000 --validate ~/Library/Audio/Plug-Ins/Components/Dendrite.component
+          ${{ matrix.pluginval-bin }} --strictness-level 10 --validate-in-process --timeout-ms 600000 \
+            --validate ~/Library/Audio/Plug-Ins/Components/dendrite.component
 
       - name: Discovery audit
         if: runner.os == 'Linux'
         run: |
           python3 -m pip install --user pedalboard numpy
-          xvfb-run -a python3 tools/discovery_audit.py "$ARTEFACTS/VST3/Dendrite.vst3" --out audit_report.md
+          xvfb-run -a python3 tools/discovery_audit.py "$BUNDLE_DIR/VST3/dendrite.vst3" --out audit_report.md
           cat audit_report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload audit report
+      - name: Keep the audit report
         if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4
         with:
@@ -89,21 +107,29 @@ jobs:
           path: audit_report.md
           if-no-files-found: ignore
 
-      - name: Upload Windows VST3
+      - name: Put the manual next to the Windows plug-in
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p dist
+          cp -R "$BUNDLE_DIR/VST3/dendrite.vst3" dist/
+          cp "$MANUAL" dist/
+
+      - name: Windows VST3 for Live
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: dendrite-windows-vst3
-          path: ${{ env.ARTEFACTS }}/VST3/
+          path: dist/
 
-      - name: Package macOS plug-ins
+      - name: Zip the Mac plug-ins
         if: runner.os == 'macOS'
         run: |
           mkdir -p dist
-          ditto -c -k --keepParent "$ARTEFACTS/VST3/Dendrite.vst3" dist/dendrite-vst3.zip
-          ditto -c -k --keepParent "$ARTEFACTS/AU/Dendrite.component" dist/dendrite-au.zip
+          ditto -c -k --keepParent "$BUNDLE_DIR/VST3/dendrite.vst3" dist/dendrite-vst3.zip
+          ditto -c -k --keepParent "$BUNDLE_DIR/AU/dendrite.component" dist/dendrite-au.zip
+          cp "$MANUAL" dist/
 
-      - name: Upload macOS VST3 + AU
+      - name: Mac VST3 and AU
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:

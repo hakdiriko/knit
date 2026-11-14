@@ -1,527 +1,717 @@
 #include "Itch.h"
 
-namespace dendrite::dsp
+namespace dendrite
 {
 namespace
 {
-    constexpr float golden = 1.6180339f;
+    constexpr float bandCentres[] = { 90.0f, 250.0f, 700.0f, 1800.0f, 4500.0f, 10000.0f };
 
-    // Breathing depth from the Itch knob: still -> breathing -> restless -> feverish.
-    constexpr std::array<Breakpoint, 4> breathPath {{ { 0.0f, 0.0f }, { 0.35f, 1.0f }, { 0.7f, 1.8f }, { 1.0f, 2.4f } }};
-
-    // Kuramoto coupling (rad/s) from Ecology. The natural rates below sit about
-    // 0.3 rad/s apart, so the wobbles lock somewhere past 60% Ecology: the "ringing"
-    // and "life" regimes breathe as one body.
-    constexpr std::array<Breakpoint, 4> kuramotoPath {{ { 0.0f, 0.0f }, { 0.4f, 0.08f }, { 0.65f, 0.5f }, { 1.0f, 1.3f } }};
-    constexpr std::array<float, 4> naturalHz { 0.09f, 0.13f, 0.17f, 0.11f };
-
-    // Move weights for hits (drums) and for sustain (pads), blended by how transient
-    // the input is. Order: open, close, step, lean, tilt.
-    constexpr std::array<float, 5> hitWeights     { 0.7f, 1.6f, 2.0f, 1.5f, 0.8f };
-    constexpr std::array<float, 5> sustainWeights { 2.0f, 0.8f, 0.8f, 1.5f, 1.6f };
-
-    // Scar size per move and the most a scar can grow to.
-    constexpr std::array<float, 3> scarUnit  { 0.8f, 0.025f, 0.12f };
-    constexpr std::array<float, 3> scarLimit { 3.0f, 0.06f, 0.4f };
-
-    // Moves land on a 4-bar line.
-    constexpr double phraseBars = 4.0;
-
-    float smooth01 (float x) noexcept
+    // A swell that rises over the first `rise` of its life and falls over the rest.
+    float swell (float p, float rise) noexcept
     {
-        x = std::clamp (x, 0.0f, 1.0f);
-        return x * x * (3.0f - 2.0f * x);
+        if (p <= 0.0f || p >= 1.0f)
+            return 0.0f;
+        const float s = p < rise ? std::sin (0.5f * pi * p / rise) : std::cos (0.5f * pi * (p - rise) / (1.0f - rise));
+        return s * s;
     }
+
+    constexpr float historySeconds = 10.0f, captureSeconds = 1.6f;
+
+    // How loud each head plays against the accent it was given, matched by ear-weighted
+    // level on drums, chords and a dub loop (tools/render/heads.cpp): no head is the
+    // quiet one any more.
+    constexpr float headGain[Heads::count] = { 0.85f, 2.7f, 1.4f, 2.6f, 5.5f };
+
+    // How much of each head goes onto the echo's tape as well.
+    constexpr float toTape[Heads::count] = { 0.25f, 0.3f, 0.55f, 0.3f, 0.2f };
+
+    // the spherical head
+    constexpr float headRadius = 0.0875f, soundSpeed = 343.0f;
 } // namespace
 
-const char* Itch::moveName (int move) noexcept
+//==============================================================================
+void Listener::prepare (float sampleRate)
 {
-    static constexpr std::array<const char*, 5> names { "open", "close", "step", "lean", "tilt" };
-    return move >= 0 && move < numMoves ? names[(size_t) move] : "";
-}
-
-void Itch::prepare (float sampleRate, float rate)
-{
-    sr = sampleRate;
-    controlRate = rate;
-    dt = 1.0f / controlRate;
-
-    hopSamples = std::max (1, (int) std::round (0.05f * sr));
-    hopSeconds = (float) hopSamples / sr;
-
-    for (int b = 0; b < numBands; ++b)
-        bands[(size_t) b].setCoefficients (80.0f * std::pow (2.0f, (float) b), 1.2f, sr);
-
-    for (int k = 0; k < 4; ++k)
-        pink[(size_t) k].prepare (controlRate, 3.0f * std::pow (golden, (float) k * 0.5f), 0x7f4a7c15u + 104729u * (uint32_t) k);
-
-    healCoef = std::exp (-1.0f / (180.0f * controlRate));
-    fastHealCoef = std::exp (-1.0f / (3.0f * controlRate));
-    appliedCoef = 1.0f - std::exp (-1.0f / (0.08f * controlRate));
-
+    for (size_t b = 0; b < filters.size(); ++b)
+        filters[b].bandpass (std::min (bandCentres[b], 0.42f * sampleRate), 1.0f, sampleRate);
+    envCoef = std::exp (-1.0f / (0.025f * sampleRate));
     reset();
 }
 
-void Itch::reset()
+void Listener::reset()
 {
-    restartDynamics (0x6d2b79f5u);
-
-    for (auto& p : pink)
-        p.reset();
-    for (int k = 0; k < 4; ++k)
-        phase[(size_t) k] = 1.7f * (float) k;
-
-    applied = {};
-    mods = {};
-    tick (0.0f); // so the first block already carries scars and breathing
-}
-
-void Itch::restartDynamics (uint32_t seed) noexcept
-{
-    for (auto& b : bands)
-        b.reset();
-
+    for (auto& f : filters)
+        f.clear();
     energy.fill (0.0f);
-    hopCounter = 0;
-    historyPos = 0;
-    framesSeen = 0;
-    soundFrames = 0;
-    specSim = barSim = fastSim = sameness = 0.0f;
-    prevBroadband = -100.0f;
-    onsetRate = transient = 0.0f;
-
-    level = 0.0f;
-    armedSeconds = 0.0f;
-    relief = 0.0f;
-    manualPending = false;
-
-    // A move in progress lets go; `applied` eases back, so nothing jumps.
-    stage = idle;
-    current = pending = lastMove = none;
-    moveAmount = 0.0f;
-
-    rng.seed (seed);
-    threshold = 1.0f + 0.08f * rng.nextBipolar();
+    stepPeak = 0.0f;
+    loudestLong = -120.0f;
+    written = 0;
+    quiet = 1 << 20;
+    score = 0.0f;
 }
 
-void Itch::setTransport (const Transport& t) noexcept
+void Listener::push (float mid) noexcept
 {
-    const bool tempo = t.playing && t.bpm > 0.0;
-
-    // Play pressed: start listening from scratch, with a seed taken from the bar the
-    // transport starts on. Playing from the same bar gives the same moves.
-    if (tempo && ! wasPlaying)
+    for (size_t b = 0; b < filters.size(); ++b)
     {
-        const auto barIndex = (uint32_t) (long long) std::floor (t.ppq / std::max (1.0, t.barQuarters));
-        restartDynamics (0x6d2b79f5u ^ (barIndex * 2654435761u));
-        lastPhrase = (long long) std::floor (t.ppq / (phraseBars * std::max (1.0, t.barQuarters)));
-    }
-
-    wasPlaying = tempo;
-    transport = t;
-}
-
-float Itch::barSeconds() const noexcept
-{
-    // Without a tempo, a bar counts as 2 s (4/4 at 120 BPM).
-    if (! hasTempo())
-        return 2.0f;
-    return std::clamp ((float) (transport.barQuarters * 60.0 / transport.bpm), 0.25f, 16.0f);
-}
-
-void Itch::analyse (float mono) noexcept
-{
-    for (int b = 0; b < numBands; ++b)
-    {
-        const float v = bands[(size_t) b].process (mono);
-        energy[(size_t) b] += v * v;
-    }
-
-    if (++hopCounter >= hopSamples)
-    {
-        hopCounter = 0;
-        analyseFrame();
-        energy.fill (0.0f);
+        const float y = filters[b].process (mid);
+        energy[b] = y * y + envCoef * (energy[b] - y * y);
+        stepPeak = std::max (stepPeak, energy[b]);
     }
 }
 
-float Itch::repeatScore (const std::array<float, numBands>& db) const noexcept
+void Listener::step (int stepsPerBar) noexcept
 {
-    // The same moment 1, 2, 4 and 8 bars ago, read between frames (bars rarely last a
-    // whole number of 50 ms frames). The best match wins: a loop repeats at its own
-    // length, and also at every multiple of it.
-    const float barFrames = barSeconds() / hopSeconds;
-    float best = -1.0f;
+    auto& current = ring[(size_t) (written % ringFrames)];
+    for (size_t b = 0; b < bands; ++b)
+        current[b] = std::max (-80.0f, 10.0f * std::log10 (energy[b] + 1e-12f));
+    last = current;
+    ++written;
 
-    for (const float bars : { 1.0f, 2.0f, 4.0f, 8.0f })
+    // Whether anything sounded during this sixteenth (not only at its edge, which a short
+    // stab can fall between).
+    const float loudest = 10.0f * std::log10 (stepPeak + 1e-12f);
+    stepPeak = 0.0f;
+
+    // Silence is judged against the track's own recent peaks (40 dB under them, never
+    // under -90 dB), so a quiet track is heard as well as a loud one.
+    loudestLong = std::max (loudest, loudestLong - 40.0f / (float) (8 * stepsPerBar)); // falls 40 dB over 8 bars
+    if (loudest < std::max (-90.0f, loudestLong - 40.0f))
     {
-        const float lag = bars * barFrames;
-        if (lag < 2.0f || lag > (float) (historyFrames - 2) || (float) framesSeen < lag + 1.0f)
+        // A rest inside the loop is not news; a silence longer than two bars is the end.
+        quiet = std::min (quiet + 1, 1 << 20);
+        if (quiet > 2 * stepsPerBar)
+            score += 0.3f * (0.0f - score);
+        return;
+    }
+    quiet = 0;
+
+    float best = 0.0f;
+    for (int bars : { 1, 2, 4 })
+    {
+        const int lag = bars * stepsPerBar;
+        if (lag >= ringFrames || written <= lag)
             continue;
-
-        const int whole = (int) lag;
-        const float frac = lag - (float) whole;
-        const auto& a = history[(size_t) ((historyPos - whole + historyFrames) % historyFrames)];
-        const auto& b = history[(size_t) ((historyPos - whole - 1 + historyFrames) % historyFrames)];
-
-        float d = 0.0f;
-        for (int k = 0; k < numBands; ++k)
-            d += std::abs (db[(size_t) k] - ((1.0f - frac) * a[(size_t) k] + frac * b[(size_t) k]));
-
-        best = std::max (best, 1.0f - std::clamp (d / (float) numBands / 9.0f, 0.0f, 1.0f));
+        const auto& then = ring[(size_t) ((written - 1 - lag) % ringFrames)];
+        float diff = 0.0f;
+        for (size_t b = 0; b < bands; ++b)
+            diff += std::abs (current[b] - then[b]);
+        best = std::max (best, std::exp (-(diff / (float) bands) / 3.5f));
     }
-
-    return best;
+    score += 0.3f * (best - score);
 }
 
-void Itch::analyseFrame() noexcept
+//==============================================================================
+void Binaural::Shadow::set (float alpha, float b) noexcept
 {
-    std::array<float, numBands> db {};
-    float total = 0.0f;
-
-    for (int b = 0; b < numBands; ++b)
-    {
-        const float e = energy[(size_t) b] / (float) hopSamples;
-        total += e;
-        db[(size_t) b] = std::max (-80.0f, 10.0f * std::log10 (e + 1.0e-12f));
-    }
-
-    const float broadband = 10.0f * std::log10 (total + 1.0e-12f);
-    const bool silent = broadband < -60.0f;
-    const float presence = std::clamp ((broadband + 60.0f) / 6.0f, 0.0f, 1.0f); // gaps between hits still count
-
-    // ---- Without a tempo: the last two seconds against the last ten. Both start as
-    // plain running means over the sound heard so far, so a fresh start (or a quiet
-    // intro) never leaves a stale average behind.
-    if (! silent)
-    {
-        ++soundFrames;
-        const float warm = 1.0f / (float) soundFrames;
-        const float aShort = std::max (hopSeconds / 2.0f, warm), aLong = std::max (hopSeconds / 10.0f, warm);
-        for (int b = 0; b < numBands; ++b)
-        {
-            shortDb[(size_t) b] += aShort * (db[(size_t) b] - shortDb[(size_t) b]);
-            longDb[(size_t) b] += aLong * (db[(size_t) b] - longDb[(size_t) b]);
-        }
-    }
-
-    float spread = 0.0f;
-    for (int b = 0; b < numBands; ++b)
-        spread += std::abs (shortDb[(size_t) b] - longDb[(size_t) b]);
-    specSim = 1.0f - std::clamp (spread / (float) numBands / 6.0f, 0.0f, 1.0f);
-
-    // ---- With a tempo: the repeat score, smoothed over about a bar.
-    const bool tempo = hasTempo();
-    if (tempo && ! silent)
-    {
-        const float score = repeatScore (db);
-        if (score >= 0.0f)
-        {
-            barSim += std::min (1.0f, hopSeconds / std::max (1.0f, barSeconds())) * (score - barSim);
-            fastSim += (hopSeconds / 0.4f) * (score - fastSim);
-        }
-    }
-
-    history[(size_t) historyPos] = db;
-    historyPos = (historyPos + 1) % historyFrames;
-    ++framesSeen;
-
-    if (! silent)
-        sameness = tempo ? barSim : specSim;
-
-    // ---- Hits or sustain: onsets per second (a 6 dB jump from one frame to the next).
-    const bool onset = ! silent && broadband - prevBroadband > 6.0f;
-    onsetRate += (hopSeconds / 3.0f) * ((onset ? 1.0f / hopSeconds : 0.0f) - onsetRate);
-    transient = std::clamp (onsetRate / 3.0f, 0.0f, 1.0f);
-    prevBroadband = broadband;
-
-    // ---- Count, in bars. Exact repetition fills the counter in `patience` bars;
-    // a bar of new material (a fill, a new section) empties it.
-    const float barsThisFrame = hopSeconds / barSeconds();
-
-    if (autoOn && stage == idle && relief < 0.3f)
-    {
-        const float same = std::clamp ((sameness - 0.45f) / 0.5f, 0.0f, 1.0f);
-        const float novelty = std::clamp ((0.8f - (tempo ? fastSim : sameness)) / 0.3f, 0.0f, 1.0f);
-        level += barsThisFrame * same * presence / (float) patience;
-        level -= barsThisFrame * novelty;
-    }
-
-    if (! autoOn)
-        level -= hopSeconds * 2.0f;
-    if (knobsMoving)
-        level -= hopSeconds * 0.25f;
-
-    level = std::clamp (level, 0.0f, 1.2f);
+    const float n = 1.0f / (1.0f + b);
+    b0 = (1.0f + alpha * b) * n;
+    b1 = (1.0f - alpha * b) * n;
+    a1 = (1.0f - b) * n;
 }
 
-void Itch::tick (float ecology) noexcept
+void Binaural::prepare (float sampleRate)
 {
-    // ---- Transport between host updates.
-    const bool tempo = hasTempo();
-    if (tempo)
-        transport.ppq += transport.bpm / 60.0 * (double) dt;
-
-    const float progress = level / threshold;
-    const float tension = buildOn && autoOn && stage == idle ? smooth01 (progress) : 0.0f;
-
-    // ---- Breathing: a 1/f walk plus a phase oscillator per node, the oscillators
-    // pulled together by Ecology. While the counter fills, the breathing deepens.
-    const float coupling = evalPath (kuramotoPath, ecology);
-    std::array<float, 4> pull {};
-    for (int k = 0; k < 4; ++k)
-        for (int j = 0; j < 4; ++j)
-            if (j != k)
-                pull[(size_t) k] += std::sin (phase[(size_t) j] - phase[(size_t) k]);
-
-    const float breathDepth = evalPath (breathPath, amount) * (1.0f - 0.6f * relief) * (1.0f + 0.6f * tension);
-    for (int k = 0; k < 4; ++k)
-    {
-        auto& p = phase[(size_t) k];
-        p += dt * (2.0f * pi * naturalHz[(size_t) k] + 0.25f * coupling * pull[(size_t) k]);
-        if (p > 2.0f * pi)
-            p -= 2.0f * pi;
-
-        mods.breath[(size_t) k] = breathDepth * (0.55f * std::sin (p) + 0.45f * pink[(size_t) k].tick());
-    }
-
-    // ---- Choose the next move a quarter of the way in, so the build can lean toward it.
-    if (stage == idle)
-    {
-        if (autoOn && pending == none && progress > 0.25f)
-        {
-            pending = chooseMove();
-            prepareMove (pending, 0.45f + 0.55f * amount);
-        }
-        else if (pending != none && (! autoOn || progress < 0.1f))
-        {
-            pending = none; // lost interest
-        }
-
-        moveAmount = buildOn && pending != none ? 0.3f * smooth01 ((progress - 0.25f) / 0.75f) : 0.0f;
-    }
-
-    // ---- Fire.
-    if (manualPending)
-    {
-        manualPending = false;
-        fire (true);
-    }
-    else if (autoOn && stage == idle && level >= threshold)
-    {
-        armedSeconds += dt;
-        bool now = true;
-
-        if (tempo)
-        {
-            const auto phrase = (long long) std::floor (transport.ppq / (phraseBars * transport.barQuarters));
-            now = phrase != lastPhrase || armedSeconds > 60.0f; // safety: never stuck armed
-        }
-
-        if (now)
-            fire (false);
-    }
-
-    if (tempo)
-        lastPhrase = (long long) std::floor (transport.ppq / (phraseBars * transport.barQuarters));
-
-    // Auto switched off: an automatic move lets go at once.
-    if (! autoOn && ! manualMove && (stage == arriving || stage == holding))
-    {
-        stage = returning;
-        stageTime = 0.0f;
-        returnSeconds = 1.0f;
-        arriveFrom = moveAmount;
-    }
-
-    updateMove();
-
-    // ---- Scars heal; at 0% Itch everything heals within seconds (fully predictable).
-    const bool still = amount < 0.02f;
-    for (size_t s = 0; s < 3; ++s)
-    {
-        scarNow[s] *= still ? fastHealCoef : healCoef;
-        if (still)
-            scarKept[s] *= fastHealCoef;
-    }
-
-    mods.ecologyAdd = applied.ecology;
-    mods.sizeRatio = applied.ratio;
-    mods.toneAdd = applied.tone;
-    mods.nodeGain = applied.gain;
-    mods.scarDetune = scarNow[0] + scarKept[0];
-    mods.scarEcho = scarNow[1] + scarKept[1];
-    mods.scarTone = scarNow[2] + scarKept[2];
+    sr = sampleRate;
+    line.prepare ((int) (0.0015f * sr) + 8);
+    beta = sr * headRadius / soundSpeed; // the bilinear transform of Brown and Duda's head shadow
+    backL.setCutoff (3200.0f, sr);
+    backR.setCutoff (3200.0f, sr);
+    clear();
 }
 
-int Itch::chooseMove() noexcept
+void Binaural::clear() noexcept
 {
-    std::array<float, numMoves> w {};
-    float total = 0.0f;
-
-    for (int m = 0; m < numMoves; ++m)
-    {
-        w[(size_t) m] = transient * hitWeights[(size_t) m] + (1.0f - transient) * sustainWeights[(size_t) m];
-        if (m == lastMove)
-            w[(size_t) m] *= 0.3f; // rarely the same move twice in a row
-        total += w[(size_t) m];
-    }
-
-    float r = rng.next01() * total;
-    for (int m = 0; m < numMoves; ++m)
-    {
-        r -= w[(size_t) m];
-        if (r <= 0.0f)
-            return m;
-    }
-
-    return numMoves - 1;
+    line.clear();
+    shadowL = {};
+    shadowR = {};
+    backL.clear();
+    backR.clear();
+    delayL = delayR = targetL = targetR = 0.0f;
+    gainL = gainR = 1.0f;
+    behind = 0.0f;
+    tick = 0;
+    primed = false;
 }
 
-void Itch::prepareMove (int move, float depth) noexcept
+void Binaural::aim (float azimuth, float near) noexcept
 {
-    target = {};
-    const float r = rng.next01();
+    // Woodworth: the far ear hears it later by (a / c) (theta + sin theta)
+    const float lateral = std::sin (azimuth);
+    const float theta = std::asin (std::clamp (lateral, -1.0f, 1.0f));
+    const float itd = headRadius / soundSpeed * (theta + lateral) * sr; // > 0: the right ear first
+    targetL = std::max (0.0f, itd);
+    targetR = std::max (0.0f, -itd);
 
-    switch (move)
+    // Brown and Duda: the high-frequency gain at an ear, from the angle between the source
+    // and that ear (2 facing it, 0.1 at 150 degrees, a bright spot straight behind)
+    const auto alpha = [] (float angle) noexcept {
+        constexpr float least = 0.1f, darkest = 150.0f * pi / 180.0f;
+        return (1.0f + 0.5f * least) + (1.0f - 0.5f * least) * std::cos (angle / darkest * pi);
+    };
+    shadowL.set (alpha (std::abs (wrapAngle (azimuth + 0.5f * pi))), beta);
+    shadowR.set (alpha (std::abs (wrapAngle (azimuth - 0.5f * pi))), beta);
+
+    // from behind, the pinna takes the edge off
+    behind = 0.65f * std::max (0.0f, -std::cos (azimuth));
+
+    // close to an ear, the other ear hears much less
+    const float shade = clamp01 (near) * 0.7f * std::abs (lateral);
+    const float body = 1.0f - 0.15f * behind;
+    gainL = body * (lateral > 0.0f ? 1.0f - shade : 1.0f);
+    gainR = body * (lateral < 0.0f ? 1.0f - shade : 1.0f);
+
+    if (! primed)
     {
-        case open: // the space blooms: the parts talk more, the top opens
-            target.ecology = 0.22f * depth;
-            target.tone = 0.35f * depth;
-            break;
-
-        case close: // the dub fader comes down: drier, darker
-            target.ecology = -0.25f * depth;
-            target.tone = -0.5f * depth;
-            break;
-
-        case step: // the delay time steps to a neighbouring value (a note value under Sync)
-            target.ratio = r < 0.35f ? 2.0f : r < 0.7f ? 0.5f : r < 0.85f ? 1.5f : 0.75f;
-            target.gain[0] = 1.0f + 0.4f * depth; // the echo leans forward while it builds
-            break;
-
-        case lean: // one node comes forward: echoes or the past on hits, shimmer or ring on sustain
-        {
-            const int node = transient > 0.4f ? (r < 0.5f ? 0 : 3) : (r < 0.5f ? 2 : 1);
-            for (int k = 0; k < 4; ++k)
-                target.gain[(size_t) k] = k == node ? 1.0f + 1.0f * depth : 1.0f - 0.2f * depth;
-            break;
-        }
-
-        case tilt: // the tone tips one way, and the Shift node's octaves follow it
-            target.tone = (r < 0.5f ? -0.6f : 0.6f) * depth;
-            break;
-
-        default: break;
+        delayL = targetL;
+        delayR = targetR;
+        primed = true;
     }
 }
 
-void Itch::fire (bool manual) noexcept
+void Binaural::process (float x, float azimuth, float near, float& left, float& right) noexcept
 {
-    int move = pending;
-    if (manual || move == none)
+    if (tick-- <= 0)
     {
-        move = chooseMove();
-        prepareMove (move, manual ? std::max (0.8f, 0.45f + 0.55f * amount) : 0.45f + 0.55f * amount);
+        tick = 15;
+        aim (azimuth, near);
     }
-
-    current = lastMove = move;
-    pending = none;
-    manualMove = manual;
-    stage = arriving;
-    stageTime = 0.0f;
-    arriveFrom = moveAmount;
-
-    // Timed in beats and bars at the host tempo, or as if at 120 BPM without one.
-    const float beat = transport.bpm > 0.0 ? std::clamp ((float) (60.0 / transport.bpm), 0.25f, 1.5f) : 0.5f;
-    const float bar = beat * (float) std::clamp (transport.barQuarters, 1.0, 8.0);
-    arriveSeconds = manual ? 0.12f : 0.25f * beat;
-    holdSeconds = (patience <= 4 ? 2.0f : 4.0f) * bar;
-    returnSeconds = 2.0f * bar;
-
-    level = 0.0f;
-    armedSeconds = 0.0f;
-    threshold = 1.0f + 0.08f * rng.nextBipolar();
-    ++scratchCount;
-
-    if (amount >= 0.02f || manual)
-        addScar();
+    delayL += 0.02f * (targetL - delayL);
+    delayR += 0.02f * (targetR - delayR);
+    line.push (x);
+    float l = shadowL.process (line.read (1.0f + delayL));
+    float r = shadowR.process (line.read (1.0f + delayR));
+    l = lerp (l, backL.lowpass (l), behind);
+    r = lerp (r, backR.lowpass (r), behind);
+    left = gainL * l;
+    right = gainR * r;
 }
 
-void Itch::updateMove() noexcept
+//==============================================================================
+void Heads::prepare (float sampleRate)
 {
-    relief = std::max (0.0f, relief - dt / 6.0f);
+    fadeStep = 1.0f / (0.1f * sampleRate);
+    sr = sampleRate;
+    historyM.prepare ((int) (historySeconds * sr));
+    capture.assign ((size_t) (captureSeconds * sr) + 8, 0.0f);
+    air.assign (capture.size(), 0.0f);
+    airFilter1.highpass (1700.0f, 0.7071f, sr);
+    airFilter2.highpass (1700.0f, 0.7071f, sr);
+    brightFilter.highpass (2500.0f, 0.7071f, sr);
+    flutter.prepare (sr, 0.32f, 0x81);
+    rmsCoef = approach (0.03f, sr);
+    vowel.bandpass (820.0f, 1.1f, sr);
+    for (auto* b : { &screamPlace, &laughPlace, &manipPlace, &ghostPlace })
+        b->prepare (sr);
+    for (auto& g : grains)
+        g.place.prepare (sr);
+    reset();
+}
 
-    switch (stage)
+void Heads::reset()
+{
+    historyM.clear();
+    onsets.fill ({});
+    onsetHead = 0;
+    lastOnset = 0.0f;
+    now = 0;
+    std::fill (capture.begin(), capture.end(), 0.0f);
+    std::fill (air.begin(), air.end(), 0.0f);
+    captureLength = copied = 0;
+    captureFrom = 0;
+    clock = -1.0;
+    end = 0.0;
+    fade = 1.0f;
+    stopping = false;
+    lamps.fill (0.0f);
+    probeL.fill (0.0f);
+    probeR.fill (0.0f);
+    for (auto& w : windows)
+        w = {};
+    lastSet = 0;
+    throat1.clear();
+    throat2.clear();
+    vowel.clear();
+    airFilter1.clear();
+    airFilter2.clear();
+    brightFilter.clear();
+    tapeScale = 1.0f;
+    screamY1 = screamY2 = screamRms = 0.0f;
+    haStart = -1.0;
+    flutter.reset();
+    for (auto* b : { &screamPlace, &laughPlace, &manipPlace, &ghostPlace })
+        b->clear();
+    for (auto& g : grains)
     {
-        case arriving:
-            stageTime += dt;
-            moveAmount = arriveFrom + (1.0f - arriveFrom) * smooth01 (stageTime / arriveSeconds);
-            if (stageTime >= arriveSeconds)
+        g.sounding = false;
+        g.place.clear();
+    }
+}
+
+void Heads::listen (float m, float, float onset) noexcept
+{
+    historyM.push (m);
+    const float high = std::abs (brightFilter.process (m));
+    ++now;
+    if (onset > 0.5f && lastOnset <= 0.5f)
+    {
+        onsetHead = (onsetHead + 1) % onsets.size();
+        onsets[onsetHead] = { now, 0.0f, 0.0f };
+    }
+    lastOnset = onset;
+    // the strength of an onset is its peak over the next 30 ms, its brightness the share of
+    // that peak above 2.5 kHz
+    auto& recent = onsets[onsetHead];
+    if (recent.at >= 0 && now - recent.at < (int64_t) (0.03f * sr))
+    {
+        recent.strength = std::max (recent.strength, std::abs (m));
+        recent.bright = std::max (recent.bright, high);
+    }
+}
+
+void Heads::fire (const Gesture& gesture, float intensity, double gapSamples, double beatSamples, double barSamples) noexcept
+{
+    const auto& u = gesture.u;
+    dice.reseed (gesture.texture);
+    strength = clamp01 (intensity);
+    fade = 1.0f;
+    stopping = false;
+    tapeScale = std::clamp (gesture.tape, 0.5f, 1.5f);
+    const float side = u[2] < 0.5f ? -1.0f : 1.0f;    // one handedness for the whole itch
+    const float scatter = 0.5f + u[7];                  // how loose its timing is
+
+    // Grab one of the strongest accents of the last bar (any within 3 dB of the loudest, so
+    // a drum loop doesn't hand the heads the same kick every time): the gesture's register
+    // picks among them, from the darkest (the kick) to the brightest (the hat).
+    const auto inBar = [&] (const Onset& o)
+    { return o.at >= 0 && o.at >= now - (int64_t) barSamples && o.at <= now - (int64_t) (0.01f * sr); };
+    float best = 0.0f;
+    for (const auto& o : onsets)
+        if (inBar (o))
+            best = std::max (best, o.strength);
+    int64_t from = now - (int64_t) beatSamples;
+    std::array<const Onset*, 32> strong {};
+    int candidates = 0;
+    for (const auto& o : onsets)
+        if (inBar (o) && o.strength >= 0.7f * best && best > 0.0f)
+            strong[(size_t) candidates++] = &o;
+    if (candidates > 0)
+    {
+        std::sort (strong.begin(), strong.begin() + candidates, [] (const Onset* a, const Onset* b)
+                   { return a->bright / (a->strength + 1e-9f) < b->bright / (b->strength + 1e-9f); });
+        from = strong[(size_t) std::min (candidates - 1, (int) (u[0] * (float) candidates))]->at;
+    }
+    captureFrom = std::max (now - (int64_t) (historySeconds * sr) + 16, from - (int64_t) (0.004f * sr));
+    captureLength = (int) std::clamp (beatSamples * (double) (1.0f - 0.25f * u[6]), 0.12 * sr, (double) capture.size() - 8.0);
+    copied = 0;
+    capturePeak = 1.0e-3f;
+    airFilter1.clear();
+    airFilter2.clear();
+
+    const double second = sr;
+    const double gap = std::clamp (gapSamples, 0.2 * second, 2.5 * second);
+
+    lastSet = gesture.setMask();
+    for (auto& w : windows)
+        w = {};
+
+    end = 0.0;
+    for (int slot = 0; slot < perItch; ++slot)
+    {
+        const auto head = (Head) std::clamp (gesture.order[(size_t) slot], 0, count - 1);
+        // A tape's heads are fixed; these drift a little, so no two itches line up the same.
+        const double start = (double) (slot + 1) * gap * dice.jitter (0.05f * scatter);
+        double length = second;
+
+        switch (head)
+        {
+            case scream:
+                length = std::clamp (1.5 * gap * dice.jitter (0.15f * scatter), 0.6 * second, 3.5 * second);
+                screamFrom = 480.0f * std::exp2 (0.75f * u[0]);
+                screamRise = (0.4f + 0.5f * u[5]) * (0.6f + 0.4f * strength);
+                screamFeedback = 0.955f + 0.025f * strength;
+                screamAz = -pi + tau * u[4];
+                screamTurns = side * (1.0f + 0.8f * u[3]) * (0.8f + 0.4f * strength);
+                throat1.clear();
+                throat2.clear();
+                screamPlace.clear();
+                screamY1 = screamY2 = screamRms = 0.0f;
+                screamTick = 0;
+                break;
+
+            case laugh:
             {
-                stage = holding;
-                stageTime = 0.0f;
+                haRate = 4.8f + 1.2f * u[1];
+                haSlow = 0.94f - 0.06f * u[6];
+                haDecay = 0.86f - 0.12f * u[6];
+                haSide = -side; // it answers from the other ear
+                haMax = 4 + (int) std::lround (3.0f * strength);
+                haCount = 0;
+                length = 0.12 * second;
+                double rate = haRate;
+                for (int k = 0; k < haMax; ++k, rate *= haSlow)
+                    length += second / rate;
+                nextHa = start;
+                haStart = -1.0;
+                vowel.clear();
+                laughPlace.clear();
+                break;
             }
-            break;
 
-        case holding:
-            stageTime += dt;
-            moveAmount = 1.0f;
-            if (stageTime >= holdSeconds)
+            case manipulate:
+                manipFloor = 0.62f - 0.25f * strength * (0.7f + 0.3f * u[5]);
+                manipTurn = side * (0.6f + 0.6f * u[3]) * pi;
+                manipAz = u[4] - 0.5f;
+                length = std::clamp ((double) captureLength / 0.72, 0.8 * second, 4.0 * second);
+                manipPos = 0.0f;
+                manipPlace.clear();
+                break;
+
+            case swarm:
             {
-                stage = returning;
-                stageTime = 0.0f;
-                arriveFrom = 1.0f;
+                swarmBase = std::clamp (2.0f * (float) (second / beatSamples), 2.0f, 8.0f); // eighth notes
+                swarmSpread = 0.12f + 0.08f * u[7];
+                swarmGrainLength = std::clamp (0.22f / swarmBase, 0.03f, 0.07f);
+                swarmSync = 0.0f;
+                swarmTick = 0;
+                length = std::clamp (2.0 * gap * dice.jitter (0.1f * scatter), 1.2 * second, 4.0 * second);
+                for (auto& g : grains)
+                {
+                    g.phase = dice.unit();
+                    g.rate = swarmBase * dice.jitter (swarmSpread);
+                    g.azimuth = dice.range (-pi, pi);
+                    g.sounding = false;
+                    g.place.clear();
+                }
+                break;
             }
-            break;
 
-        case returning:
-            stageTime += dt;
-            moveAmount = arriveFrom * (1.0f - smooth01 (stageTime / returnSeconds));
-            if (stageTime >= returnSeconds)
+            case ghost:
             {
-                stage = idle;
-                current = none;
-                manualMove = false;
-                moveAmount = 0.0f;
-                relief = 1.0f;
+                ghostSpeed = 0.82f + 0.13f * u[1];
+                ghostFrom = side * (0.4f + 0.2f * u[3]) * pi;
+                ghostPos = 0.0f;
+                length = std::min (3.0 * second, (double) captureLength / ghostSpeed + 0.24 * second);
+                // a velvet-noise sequence: one sparse tap per slot, random sign, decaying
+                const float span = 0.22f * sr, pitch = span / (float) velvetTaps, tauSamples = 0.07f * sr;
+                float energy = 0.0f;
+                for (int k = 0; k < velvetTaps; ++k)
+                {
+                    velvetAt[(size_t) k] = (int) ((float) k * pitch + dice.unit() * pitch);
+                    velvetWeight[(size_t) k] = dice.sign() * std::exp (-(float) velvetAt[(size_t) k] / tauSamples);
+                    energy += velvetWeight[(size_t) k] * velvetWeight[(size_t) k];
+                }
+                const float norm = 1.0f / std::sqrt (std::max (energy, 1.0e-9f));
+                for (auto& w : velvetWeight)
+                    w *= norm;
+                ghostPlace.clear();
+                break;
             }
-            break;
+        }
 
-        case idle:
-        default: break;
+        windows[(size_t) head] = { start, length, true };
+        end = std::max (end, start + length);
     }
-
-    // Continuous offsets ease toward the move (no zipper, no jump); a step is a switch
-    // halfway through, and the network's glide or crossfade carries it.
-    const float a = moveAmount;
-    applied.ecology += appliedCoef * (target.ecology * a - applied.ecology);
-    applied.tone += appliedCoef * (target.tone * a - applied.tone);
-    for (size_t k = 0; k < 4; ++k)
-        applied.gain[k] += appliedCoef * ((1.0f + (target.gain[k] - 1.0f) * a) - applied.gain[k]);
-    applied.ratio = a > 0.5f ? target.ratio : 1.0f;
+    end += 0.02 * second; // the places' last samples
+    clock = 0.0;
 }
 
-void Itch::addScar() noexcept
+void Heads::copyCapture() noexcept
 {
-    const auto s = (size_t) std::min (2, (int) (rng.next01() * 3.0f));
-    const float m = (rng.next01() < 0.5f ? -1.0f : 1.0f) * (0.4f + 0.6f * rng.next01()) * scarUnit[s];
-
-    scarNow[s] = std::clamp (scarNow[s] + m, -scarLimit[s], scarLimit[s]);
-    scarKept[s] = std::clamp (scarKept[s] + 0.15f * m, -scarLimit[s], scarLimit[s]);
-}
-
-std::array<float, 6> Itch::getScars() const noexcept
-{
-    return { scarNow[0], scarNow[1], scarNow[2], scarKept[0], scarKept[1], scarKept[2] };
-}
-
-void Itch::setScars (const std::array<float, 6>& s) noexcept
-{
-    for (size_t i = 0; i < 3; ++i)
+    // a little at a time, never more than has been heard
+    for (int step = 0; step < 64 && copied < captureLength; ++step)
     {
-        scarNow[i] = std::isfinite (s[i]) ? std::clamp (s[i], -scarLimit[i], scarLimit[i]) : 0.0f;
-        scarKept[i] = std::isfinite (s[i + 3]) ? std::clamp (s[i + 3], -scarLimit[i], scarLimit[i]) : 0.0f;
+        const int64_t source = captureFrom + copied;
+        const int64_t back = historyM.written() - source;
+        if (back < 1)
+            break;
+        const float fade = std::min (1.0f, (float) copied / (0.003f * sr))
+                           * std::min (1.0f, (float) (captureLength - copied) / (0.02f * sr));
+        const float v = historyM.at (back) * fade;
+        capture[(size_t) copied] = v;
+        air[(size_t) copied] = airFilter2.process (airFilter1.process (v));
+        capturePeak = std::max (capturePeak, std::abs (v));
+        ++copied;
     }
 }
-} // namespace dendrite::dsp
+
+float Heads::readCapture (float position) const noexcept
+{
+    if (position < 0.0f || position >= (float) (copied - 3))
+        return 0.0f;
+    const auto i = (size_t) position;
+    const float f = position - (float) i;
+    const float xm1 = i > 0 ? capture[i - 1] : 0.0f, x0 = capture[i], x1 = capture[i + 1], x2 = capture[i + 2];
+    const float c1 = 0.5f * (x1 - xm1);
+    const float c2 = xm1 - 2.5f * x0 + 2.0f * x1 - 0.5f * x2;
+    const float c3 = 0.5f * (x2 - xm1) + 1.5f * (x0 - x1);
+    return ((c3 * f + c2) * f + c1) * f + x0;
+}
+
+float Heads::readAir (float position) const noexcept
+{
+    if (position < 0.0f || position >= (float) (copied - 2))
+        return 0.0f;
+    const auto i = (size_t) position;
+    const float f = position - (float) i;
+    return air[i] + f * (air[i + 1] - air[i]);
+}
+
+void Heads::process (float& outM, float& outS, float& tapeM, float& tapeS, float& turn) noexcept
+{
+    outM = outS = tapeM = tapeS = turn = 0.0f;
+    probeL.fill (0.0f);
+    probeR.fill (0.0f);
+    if (copied < captureLength)
+        copyCapture();
+    if (! busy())
+    {
+        lamps.fill (0.0f);
+        return;
+    }
+
+    if (stopping)
+    {
+        // itch turned off: the heads fade out within 100 ms
+        fade -= fadeStep;
+        if (fade <= 0.0f)
+        {
+            fade = 0.0f;
+            clock = end;
+            lamps.fill (0.0f);
+            return;
+        }
+    }
+    const double t = clock;
+    clock += 1.0;
+    const float level = 0.75f + 0.25f * strength;
+
+    for (int k = 0; k < count; ++k)
+    {
+        if (! windows[(size_t) k].on)
+        {
+            lamps[(size_t) k] = 0.0f;
+            continue;
+        }
+        float l = 0.0f, r = 0.0f;
+        switch ((Head) k)
+        {
+            case scream: playScream (t, level, l, r); break;
+            case laugh: playLaugh (t, level, l, r); break;
+            case manipulate: playManipulate (t, level, l, r, turn); break;
+            case swarm: playSwarm (t, level, l, r); break;
+            case ghost: playGhost (t, level, l, r); break;
+        }
+        // levelled, and never louder at its peaks than the accent it came from
+        const float ceiling = 0.85f * capturePeak, drive = 1.0f / ceiling;
+        l = softClip (l * headGain[k], drive);
+        r = softClip (r * headGain[k], drive);
+        probeL[(size_t) k] = l;
+        probeR[(size_t) k] = r;
+        const float m = 0.5f * (l + r), s = 0.5f * (l - r);
+        outM += m;
+        outS += s;
+        tapeM += tapeScale * toTape[k] * m;
+        tapeS += tapeScale * toTape[k] * s;
+    }
+    if (stopping)
+    {
+        outM *= fade;
+        outS *= fade;
+        tapeM *= fade;
+        tapeS *= fade;
+        turn *= fade;
+        for (auto& l : lamps)
+            l *= fade;
+    }
+}
+
+void Heads::stop() noexcept
+{
+    if (busy())
+        stopping = true;
+}
+
+// ---- scream: the accent, rocked back and forth, excites a climbing throat that circles
+// your head, faster as it climbs.
+void Heads::playScream (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[scream];
+    const float ps = w.phase (t);
+    const float e = swell (ps, 0.35f);
+    lamps[scream] = e;
+    if (e <= 0.0f)
+        return;
+    if (screamTick-- <= 0)
+    {
+        screamTick = 15;
+        const float f = std::min (screamFrom * std::exp2 (screamRise * smooth01 (ps)), 0.2f * sr);
+        throat1.bandpass (f, 14.0f, sr);
+        throat2.bandpass (2.01f * f, 16.0f, sr);
+    }
+    const float span = (float) std::max (32, captureLength - 4);
+    float position = (float) std::fmod (t - w.start, 2.0 * span);
+    if (position > span)
+        position = 2.0f * span - position; // forward, then back: an endless excitation
+    const float x = readCapture (position);
+    const float y1 = throat1.process (x + screamFeedback * softClip (screamY1, 1.5f));
+    const float y2 = throat2.process (x + screamFeedback * softClip (screamY2, 1.5f));
+    screamY1 = y1;
+    screamY2 = y2;
+    const float y = y1 + 0.5f * y2;
+    screamRms += rmsCoef * (y * y - screamRms);
+    const float agc = std::min (40.0f, 0.42f * capturePeak / (std::sqrt (screamRms) * 1.41f + 1.0e-5f));
+    const float voice = softClip (agc * y, 1.2f) * e * level;
+
+    const float azimuth = screamAz + tau * screamTurns * std::pow (clamp01 (ps), 1.4f) + 0.25f * flutter.next();
+    screamPlace.process (voice, azimuth, 0.6f * e, l, r);
+}
+
+// ---- laugh: the accent's first syllable, again and again, lower and softer, hopping
+// from one side of your head to the other.
+void Heads::playLaugh (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[laugh];
+    if (t >= w.start && t < w.start + w.length && t >= nextHa && haCount < haMax)
+    {
+        haStart = t;
+        haLength = 0.09 * sr * dice.jitter (0.15f);
+        haPos = (float) (0.002 * sr);
+        haSpeed = std::exp2 (-(0.3f + 0.55f * (float) haCount) / 12.0f) * dice.jitter (0.01f);
+        haAmp = std::pow (haDecay, (float) haCount) * dice.range (0.75f, 1.0f);
+        if (dice.unit() < 0.8f)
+            haSide = -haSide; // mostly alternating, never a pattern
+        haAz = haSide * dice.range (0.9f, 2.1f); // beside you, sometimes a little behind
+        nextHa = t + sr / haRate * dice.jitter (0.08f);
+        haRate *= haSlow;
+        ++haCount;
+    }
+    lamps[laugh] = 0.0f;
+    if (haStart >= 0.0 && t >= haStart && t < haStart + haLength + 0.002 * sr)
+    {
+        const float wv = swell ((float) ((t - haStart) / haLength), 0.15f) * haAmp;
+        const float g = readCapture (haPos) * wv;
+        haPos += haSpeed;
+        const float grain = (0.6f * g + 0.9f * vowel.process (g)) * level;
+        laughPlace.process (grain, haAz, 0.5f, l, r);
+        lamps[laugh] = std::min (1.0f, 1.4f * wv);
+    }
+}
+
+// ---- manipulate: a hand on the reel. Pitch and time fall together, and the sound
+// swings around your head, taking the echo's space with it.
+void Heads::playManipulate (double t, float level, float& l, float& r, float& turn) noexcept
+{
+    const auto& w = windows[manipulate];
+    const float pm = w.phase (t);
+    lamps[manipulate] = 0.0f;
+    if (pm <= 0.0f || pm >= 1.0f)
+        return;
+    const float speed = manipFloor + (1.0f - manipFloor) * std::exp (-3.0f * pm);
+    const float tail = std::min (1.0f, ((float) captureLength - manipPos) / (0.03f * sr));
+    const float env = std::min (1.0f, pm / 0.02f) * std::min (1.0f, (1.0f - pm) / 0.15f) * std::max (0.0f, tail);
+    const float y = readCapture (manipPos) * env * 0.9f * level;
+    manipPos += speed;
+
+    const float before = smooth01 ((float) ((t - 1.0 - w.start) / w.length));
+    const float swing = manipTurn * smooth01 (pm);
+    manipPlace.process (y, manipAz + swing, 0.2f, l, r);
+    turn = 0.5f * manipTurn * (smooth01 (pm) - before);
+    lamps[manipulate] = std::sin (pi * pm) * (0.5f + 0.5f * strength);
+}
+
+// ---- swarm: a dozen pulses, each at its own rate and place around you, fire grains of
+// the attack. Coupled (Kuramoto), they pull each other into step, a beat grid draws them
+// onto the beat, and the cloud closes into one hit in front of you.
+void Heads::playSwarm (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[swarm];
+    const float p = w.phase (t);
+    lamps[swarm] = 0.0f;
+    const bool alive = p >= 0.0f && p < 1.0f;
+
+    if (alive && swarmTick-- <= 0)
+    {
+        constexpr int every = 8;
+        swarmTick = every - 1;
+        float cx = 0.0f, cy = 0.0f;
+        for (const auto& g : grains)
+        {
+            cx += std::cos (tau * g.phase);
+            cy += std::sin (tau * g.phase);
+        }
+        cx /= (float) swarmGrains;
+        cy /= (float) swarmGrains;
+        swarmSync = std::sqrt (cx * cx + cy * cy);
+        const float mean = std::atan2 (cy, cx) / tau;
+
+        const float spreadHz = swarmBase * swarmSpread;
+        const float coupling = 4.0f * spreadHz * smooth01 (p / 0.6f);
+        const float pace = 2.0f * spreadHz * smooth01 ((p - 0.25f) / 0.45f);
+        const float grid = (float) ((t - w.start) / sr) * swarmBase;
+        const float dt = (float) every / sr;
+        for (auto& g : grains)
+        {
+            const float pull = coupling * swarmSync * std::sin (tau * (mean - g.phase)) + pace * std::sin (tau * (grid - g.phase));
+            g.phase += (g.rate + pull) * dt;
+            if (g.phase < 0.0f)
+                g.phase += 1.0f;
+            if (g.phase >= 1.0f)
+            {
+                g.phase -= std::floor (g.phase);
+                if (p < 0.88f)
+                {
+                    g.sounding = true;
+                    g.age = 0;
+                    g.length = std::max (64, (int) (swarmGrainLength * sr * dice.jitter (0.2f)));
+                    g.position = 0.002f * sr;
+                    g.speed = dice.jitter (0.03f);
+                    // scattered grains are few at a time, so each is louder; in step they add up
+                    g.amp = level / (float) swarmGrains * (1.0f + 3.0f * (1.0f - swarmSync));
+                }
+            }
+        }
+    }
+
+    // the cloud closes in front of you as it locks
+    const float close = smooth01 ((swarmSync - 0.55f) / 0.4f);
+    bool any = false;
+    for (auto& g : grains)
+    {
+        if (! g.sounding)
+            continue;
+        any = true;
+        const float s = std::sin (pi * (float) g.age / (float) g.length);
+        const float x = readCapture (g.position) * s * s * g.amp;
+        g.position += g.speed;
+        if (++g.age >= g.length)
+            g.sounding = false;
+        float gl = 0.0f, gr = 0.0f;
+        g.place.process (x, g.azimuth * (1.0f - close), 0.25f, gl, gr);
+        l += gl;
+        r += gr;
+    }
+    if (alive || any)
+        lamps[swarm] = alive ? 0.25f + 0.75f * swarmSync : 0.25f;
+}
+
+// ---- ghost: the accent's air, smeared by velvet noise into a whisper at one ear, that
+// passes behind your head to the other.
+void Heads::playGhost (double t, float level, float& l, float& r) noexcept
+{
+    const auto& w = windows[ghost];
+    const float p = w.phase (t);
+    lamps[ghost] = 0.0f;
+    if (p <= 0.0f || p >= 1.0f)
+        return;
+    float y = 0.0f;
+    for (int k = 0; k < velvetTaps; ++k)
+        y += velvetWeight[(size_t) k] * readAir (ghostPos - (float) velvetAt[(size_t) k]);
+    ghostPos += ghostSpeed;
+    const float env = std::min (1.0f, p / 0.06f) * std::min (1.0f, (1.0f - p) / 0.25f);
+    y *= env * level;
+    const float azimuth = ghostFrom + (ghostFrom > 0.0f ? pi : -pi) * smooth01 (p);
+    ghostPlace.process (y, azimuth, 0.9f, l, r);
+    lamps[ghost] = env;
+}
+} // namespace dendrite
