@@ -33,7 +33,9 @@ jobs:
       matrix:
         # While Hakan tests on Windows, pushes build Windows and Linux (the audit) only.
         # Run the workflow by hand (workflow_dispatch), or push a v* tag, to add the Mac build.
-        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"macos","runner":"macos-15","pluginval-zip":"pluginval_macOS.zip","pluginval-bin":"./pluginval.app/Contents/MacOS/pluginval"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]' || '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]') }}
+        # The -male entries build the same plug-in with Janelia's male fly inside (DENDRITE_FLY=malecns),
+        # validated and audited the same way; they make no release packages.
+        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"macos","runner":"macos-15","pluginval-zip":"pluginval_macOS.zip","pluginval-bin":"./pluginval.app/Contents/MacOS/pluginval"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"},{"os-name":"windows-male","fly":"malecns","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux-male","fly":"malecns","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]' || '[{"os-name":"windows","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"},{"os-name":"windows-male","fly":"malecns","runner":"windows-2022","pluginval-zip":"pluginval_Windows.zip","pluginval-bin":"./pluginval.exe"},{"os-name":"linux-male","fly":"malecns","runner":"ubuntu-24.04","pluginval-zip":"pluginval_Linux.zip","pluginval-bin":"./pluginval"}]') }}
     defaults:
       run:
         shell: bash
@@ -56,7 +58,7 @@ jobs:
 
       - name: Configure and build
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DDENDRITE_FLY=${{ matrix.fly || 'flywire' }}
           cmake --build build --config Release --parallel 4
 
       # GitHub's release downloads can fail for minutes at a time (504), so keep the zips in
@@ -110,7 +112,7 @@ jobs:
         if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4
         with:
-          name: audit-report
+          name: audit-report-${{ matrix.os-name }}
           path: audit_report.md
           if-no-files-found: ignore
 
@@ -120,12 +122,13 @@ jobs:
           mkdir -p dist
           cp -R "$BUNDLE_DIR/VST3/dendrite.vst3" dist/
           cp "$MANUAL" dist/
+          if [ "${{ matrix.fly }}" = "malecns" ]; then cp packaging/CREDITS-malecns.txt dist/CREDITS.txt; fi
 
       - name: Windows VST3 for Live
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: dendrite-windows-vst3
+          name: dendrite-${{ matrix.os-name }}-vst3
           path: dist/
 
       - name: Zip the Mac plug-ins
@@ -149,7 +152,7 @@ jobs:
         run: echo "v=$(sed -n 's/^project(dendrite VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Package (Windows zip and installer)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !matrix.fly
         run: |
           v=${{ steps.ver.outputs.v }}
           mkdir -p pkg/stage release
@@ -175,7 +178,7 @@ jobs:
           (cd pkg && ditto -c -k --keepParent stage "../release/dendrite-$v-macos-vst3-au.zip")
 
       - name: Package (Linux zip)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !matrix.fly
         run: |
           v=${{ steps.ver.outputs.v }}
           mkdir -p pkg/stage release
@@ -184,6 +187,7 @@ jobs:
           (cd pkg/stage && zip -qr "../../release/dendrite-$v-linux-vst3.zip" .)
 
       - name: Keep the release packages
+        if: ${{ !matrix.fly }}
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.os-name }}

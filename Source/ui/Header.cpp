@@ -1,4 +1,5 @@
 #include "Header.h"
+#include "dsp/FlyData.h"
 
 namespace dendrite::ui
 {
@@ -55,7 +56,7 @@ void Header::paint (juce::Graphics& g)
     g.setColour (tone::grey (tone::bright));
     g.drawText ("dendrite", juce::Rectangle<float> (x, y, 80.0f, h), juce::Justification::centredLeft);
     x += width ("dendrite") + 24.0f;
-    const juce::String parts[] = { "drosophila melanogaster", "adult female", "flywire 783" };
+    const juce::String parts[] = { "drosophila melanogaster", flydata::specimenSex, flydata::atlasName };
     juce::String specimen;
     for (const auto& part : parts)
     {

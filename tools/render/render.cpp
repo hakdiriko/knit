@@ -2,7 +2,7 @@
 // the same DSP the plug-in uses, with a playing transport at a given tempo, and writes a
 // 32-bit float WAV. Used for sketches and measurements.
 //
-//   g++ -O2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp -o build/render
+//   g++ -O2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp Source/flies/flywire/FlyData.cpp -o build/render
 //   build/render in.wav out.wav [--feed 0.5] [--space 0.4] [--itch 10] [--bpm 120]
 //                [--throw start:end (seconds, repeatable)] [--stopped] [--tail seconds]
 //                [--sweep feed|space from to]  (moves a control linearly over the file)

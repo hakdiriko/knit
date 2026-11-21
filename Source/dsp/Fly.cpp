@@ -8,8 +8,8 @@ namespace dendrite
 namespace
 {
 // Shiu et al. (2024): rest and reset -52 mV, threshold -45 mV, membrane 20 ms, synapses 5 ms,
-// refractory 2.2 ms, 0.275 mV per synapse.
-constexpr float vRest = -52.0f, vThreshold = -45.0f, wSynapse = 0.275f;
+// refractory 2.2 ms, 0.275 mV per synapse (per FlyWire synapse: each atlas says what its synapse is worth).
+constexpr float vRest = -52.0f, vThreshold = -45.0f, wSynapse = flydata::synapseMv;
 constexpr int refractorySteps = 4;
 // how each sense tires: (use per second at full drive, recovery in seconds at awake 0.5); the last is smell
 constexpr float tireUse[7] = { 0.8f, 0.8f, 0.3f, 12.0f, 12.0f, 12.0f, 0.5f };
@@ -53,8 +53,10 @@ Fly::Fly()
         plasticAtBirth[(size_t) p] = wSynapse * (float) flydata::weight[flydata::plastic[p]];
     }
     plasticBirth = (float) std::max (1.0, birth * (double) wSynapse);
+    // an inhibitory synapse can weigh more than an excitatory one (the atlas's E/I balance; 1 for FlyWire)
+    const float wInhibitory = flydata::inhibitoryScale * wSynapse;
     for (int s = 0; s < flydata::synapses; ++s)
-        w[(size_t) s] = wSynapse * (float) flydata::weight[s];
+        w[(size_t) s] = (flydata::weight[s] < 0 ? wInhibitory : wSynapse) * (float) flydata::weight[s];
     forget();
 }
 
@@ -345,7 +347,7 @@ void Fly::live() noexcept
     }
     closer /= std::max (1.0f, nCloser);
     away /= std::max (1.0f, nAway);
-    feeling = (closer - away) / (closer + away + 2.0f);
+    feeling = std::clamp ((closer - away) / (closer + away + 2.0f) - flydata::feelingRest, -1.0f, 1.0f);
     if (! innerLife)
         return;
     livedSec += (double) dt;
@@ -448,7 +450,9 @@ void Fly::step() noexcept
                 const bool eye = s >= 3;
                 f += dtSec * ((1.0f - f) / ((eye ? taste.eyesBack : tireBack[s]) * recoverBy) - (eye ? taste.eyesTire : tireUse[s]) * d * f);
             }
-            hit[k] = std::min (0.5f, rate * gain * d * f * dtSec); // the chance its neurons fire this step
+            // the chance its neurons fire this step (senseGain: how hard this atlas's ear or eye neurons
+            // must fire for the music to reach the brain as hard as it reached the FlyWire fly)
+            hit[k] = std::min (0.5f, flydata::senseGain[k] * rate * gain * d * f * dtSec);
         }
     }
     for (int k = 0; k < inputs; ++k)
@@ -748,16 +752,18 @@ void Fly::reflexes() noexcept
     }
     const float dt = dtSec;
     const float escRate = (float) esc / ((float) flydata::escapeCount * dt);
-    const float groomRate = (float) (legA + legB) / ((float) flydata::groomAll * dt);
+    // groomGain, leanGain, excitedScale and feelingRest calibrate the electrodes per atlas (Atlas.h):
+    // 1, 1, 1 and 0 for FlyWire, whose readouts the reflexes were tuned on
+    const float groomRate = (float) (legA + legB) / ((float) flydata::groomAll * dt) * flydata::groomGain;
     const float l = (float) lefts / ((float) flydata::leftAll * dt), r = (float) rights / ((float) flydata::rightAll * dt);
 
     escape += coeff (0.03f, dt) * (escRate - escape);
     groom += coeff (0.15f, dt) * (groomRate - groom);
     // its turn: the steering neurons, DNa01 and DNa02 on each side (2.5; until then every descending
     // neuron's left against right, which mostly heard the music's level, not where it came from)
-    const float turnNow = (float) (steerL - steerR) / ((float) flydata::steerCount * dt);
+    const float turnNow = (float) (steerL - steerR) / ((float) flydata::steerCount * dt) * flydata::leanGain;
     lean += coeff (1.0f, dt) * (turnNow - lean);
-    excited += coeff (0.4f, dt) * (l + r - excited);
+    excited += coeff (0.4f, dt) * ((l + r) * flydata::excitedScale - excited);
     if (stand != nullptr)
     {
         // the stand-in's filter takes the place of the four output signals (its legs do not rub)

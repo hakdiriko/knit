@@ -88,7 +88,7 @@ def main():
             drive = float(f[key][fi])
             u, rec = HAB.get(key[0], (0.5, 5.0))
             res[key] += DT * ((1 - res[key]) / rec - u * drive * res[key])
-            r = (SR if key[0].startswith('smell') else 200.0) * drive * res[key] * gain
+            r = (SR if key[0].startswith('smell') else 200.0) * drive * res[key] * gain * sim.GAIN.get(key, 1.0)
             hit = idx[rng.random(len(idx)) < r * DT]
             if len(hit): forced.append(hit)
         if not still and esc_s > 30:  # a jump is a shock: the punishing dopamine neurons fire

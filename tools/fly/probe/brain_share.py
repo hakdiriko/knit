@@ -212,7 +212,7 @@ def compare(piece, a_log, b_log):
 
 def render(piece, wav, outdir, extra):
     os.makedirs(outdir, exist_ok=True)
-    cmd = [os.path.join(ROOT, 'build', 'render'), wav, '-', '--bpm', str(piece['bpm']), '--bar', str(piece['barBeats']),
+    cmd = [os.environ.get('RENDER', os.path.join(ROOT, 'build', 'render')), wav, '-', '--bpm', str(piece['bpm']), '--bar', str(piece['barBeats']),
            '--repeat', str(piece['repeat']), '--fly-log', os.path.join(outdir, 'fly.csv'), '--fly-dump', outdir,
            '--stats', os.path.join(outdir, 'stats.json')] + extra
     subprocess.run(cmd, check=True, stderr=subprocess.DEVNULL)

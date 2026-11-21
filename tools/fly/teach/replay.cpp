@@ -2,7 +2,7 @@
 // a take can be heard again (and checked: the moves must start on the same beats the page logged).
 // Normally run through tools/fly/teach/teach.py replay, which does the WAV and JSON parts.
 //
-//   g++ -O2 -std=c++20 -I Source -I tools/fly/teach tools/fly/teach/replay.cpp Source/dsp/*.cpp -o build/teach_replay
+//   g++ -O2 -std=c++20 -I Source -I tools/fly/teach tools/fly/teach/replay.cpp Source/dsp/*.cpp Source/flies/flywire/FlyData.cpp -o build/teach_replay
 //   build/teach_replay sampleRate bpm barBeats frames loop.f32 events.txt out.f32
 //
 // loop.f32: one pass of the loop, float32, all left then all right. events.txt: one per line,

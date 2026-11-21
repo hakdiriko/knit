@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased (the male fly, an A/B)
+
+FlyWire's data are CC BY-NC (no selling without Princeton's permission). Janelia's male fly brain (male CNS v1.0, Berg et al. 2026) is CC BY: free to sell with credit. This adds it as a second fly you can load next to today's, so Hakan can hear whether it is as alive.
+
+- **Two flies, one switch.** The default build is today's fly, bit-identical to 3.0.0 (renderer on keys, groove and voice: identical to the bit). A second build carries the male fly: 13,065 of his 144,076 brain neurons, 1.76 M connections, with his ears, eyes, giant fiber, grooming and steering neurons, mushroom body and smell. CI builds it for Windows and Linux as `dendrite-windows-male-vst3` (with CREDITS.txt for Janelia).
+- **Calibrated to sound like the same animal.** Janelia counts more synapses per connection and predicts transmitters a little differently, so each synapse weighs half as much, inhibition a little more, and each sense reaches his brain as hard as it reached hers. His grooming, steering, excitement and mood are read at the same scale. On six loops he itches about as often as she does (pad: 8 against 23 times a minute), jumps as often, and grooms as much; his steering neurons barely fire, so he turns less on grooves.
+- **The window** names him: "adult male, male cns v1.0", 754 x 496 um, hover shows Janelia body ids and types. The scale bar and legend move left when the map is narrower so the row fits.
+- About a quarter more CPU than the FlyWire fly.
+
 ## 3.0.0 (the preparation: the window becomes an electrophysiology rig)
 
 Hakan asked for a full rebuild of the window, not a reskin: the fly is the specimen, the window is the rig recording it, dark science, clinical. One rule above style: every number, trace and label on screen comes from real state. The sound does not change (null test below).

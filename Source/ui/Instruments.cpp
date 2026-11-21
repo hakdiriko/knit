@@ -1,6 +1,7 @@
 #include "Instruments.h"
 #include "rig/Recording.h"
 #include "rig/Identities.h"
+#include "dsp/FlyData.h"
 
 namespace dendrite::ui
 {
@@ -117,7 +118,7 @@ void Instruments::paint (juce::Graphics& g)
         namespace id = rig::identities;
         const juce::String type (id::typeName[id::type[tip.busiest]]);
         row ("busiest", { { type.isNotEmpty() ? type : juce::String ("untyped") }, { "  ", true }, { juce::String (tip.busiestHz, 1) }, { " Hz", true } },
-             "the busiest neuron under the tip: FlyWire " + juce::String ((juce::int64) id::rootId[tip.busiest]) + ", its cell type and rate");
+             "the busiest neuron under the tip: " + juce::String (flydata::idSource) + " " + juce::String ((juce::int64) id::rootId[tip.busiest]) + ", its cell type and rate");
     }
     else
         row ("busiest", { { "-" } }, tip.units > 0 ? "none of the neurons under the tip is firing" : "no neuron under the tip", tone::mid);

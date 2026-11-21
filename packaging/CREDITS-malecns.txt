@@ -1,0 +1,47 @@
+dendrite - credits and licences
+================================
+
+dendrite (c) 2026 hakdiriko. All rights reserved.
+https://afferent.page
+
+
+The fly
+-------
+dendrite's itch is driven by a model of part of a real fruit fly's brain
+(Drosophila melanogaster, an adult male): the neurons that answer music and
+their connections, cut from Janelia's male CNS connectome and converted into
+a compact table inside the plug-in. The neurons are simulated as in Shiu et
+al. 2024, with learning, moods and the link to the echo added for dendrite.
+
+Connectome data: Janelia Research Campus (FlyEM) and collaborators,
+  male CNS v1.0. https://male-cns.janelia.org
+  Licence: Creative Commons Attribution 4.0 International (CC BY 4.0),
+  https://creativecommons.org/licenses/by/4.0/
+  Changes: the brain's neurons that fired on test material were selected
+  (the nerve cord left out), their synapse counts weighted and re-encoded
+  for real-time use, with the cell types, transmitters, sides and soma
+  places needed to show them; nothing else of the data is distributed.
+
+  Berg, S., Beckett, I. R., Costa, M., Schlegel, P. et al. Sexual dimorphism
+    in the complete connectome of the Drosophila male central nervous
+    system. Cell 189 (2026).
+
+Brain model: Shiu, P. K. et al. A Drosophila computational brain model
+  reveals sensorimotor processing. Nature 634, 210-219 (2024).
+  Code: github.com/philshiu/Drosophila_brain_model (MIT licence).
+
+The fly is a model inspired by these data. It is not a scientific
+instrument, and Janelia and the authors above do not endorse dendrite.
+
+
+Fonts
+-----
+Fragment Mono, (c) The Fragment Mono Project Authors, SIL Open Font License 1.1.
+The licence text is included as OFL-FragmentMono.txt.
+
+
+Software
+--------
+Built with JUCE (juce.com), used under the JUCE licence.
+VST is a registered trademark of Steinberg Media Technologies GmbH.
+Audio Units is a trademark of Apple Inc.

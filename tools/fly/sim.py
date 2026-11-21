@@ -9,8 +9,18 @@ import os
 MUTE = set(os.environ.get('MUTE', '').split(',')) - {''}
 DT = 0.5e-3
 V0, VTH, TM, TAU, TRF, DLY, WSYN = -52.0, -45.0, 20e-3, 5e-3, 2.2e-3, 1.8e-3, 0.275
+READOUT = {'groomGain': 1.0, 'leanGain': 1.0, 'excitedScale': 1.0, 'feelingRest': 0.0}  # how the plug-in's reflexes read this fly (malecns.py)
+INH = 1.0  # inhibitory synapses' extra weight (malecns.py)
+GAIN = {}  # per (sense, side): input rate scale for a fly whose senses were reconstructed differently (malecns.py)
+
+FLY = os.environ.get('FLY', 'flywire')  # flywire: the 783 female brain (CC BY-NC); malecns: Janelia's male brain (CC BY)
 
 def load():
+    global WSYN, GAIN, INH, READOUT
+    if FLY == 'malecns':
+        import malecns
+        WSYN, GAIN, INH, READOUT = malecns.WSYN, malecns.GAIN, malecns.INH, malecns.READOUT
+        return malecns.load(WSYN)
     comp = pd.read_csv(D + 'Completeness_783.csv', index_col=0)
     con = pd.read_parquet(D + 'Connectivity_783.parquet')
     n = len(comp)
@@ -91,7 +101,7 @@ def run(W, g, f, n, seconds, rate=float(os.environ.get('RATE', 200)), seed=1):
             u, rec = HAB[key[0]]
             res[key] += DT * ((1 - res[key]) / rec - u * drive * res[key])
             if k % 20 == 0: hab_log[key].append(res[key])
-            r = rate * drive * res[key]
+            r = rate * drive * res[key] * GAIN.get(key, 1.0)
             hit = idx[rng.random(len(idx)) < r * DT]
             if len(hit): forced.append(hit)
         if forced:

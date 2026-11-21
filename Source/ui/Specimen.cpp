@@ -177,7 +177,7 @@ int Specimen::findHover() const
 
 void Specimen::paintHover (juce::Graphics& g, const Hairline& line)
 {
-    // the neuron under the hand: who it is in FlyWire, and its rate now
+    // the neuron under the hand: who it is in its atlas, and its rate now
     const int nearest = hovered;
     if (nearest < 0)
         return;
@@ -243,17 +243,29 @@ void Specimen::paintScale (juce::Graphics& g, const Hairline& line)
     // the scale bar: a 1-2-5 length near 80 px, picked again on every resize
     const float um = niceMicrons (80.0f * umPerPx), len = um / umPerPx;
     const float y = bottom + 58.0f;
+    const juce::String levels[] = { "silent", "fired this session", "10 Hz", utf8 ("\xe2\x89\xa5 100 Hz") };
+    const auto scars = juce::String (processor.recording.scarTotal()) + (processor.recording.scarTotal() == 1 ? " scar" : " scars");
+    // the bar and the legend start under the map's left edge; a narrower map (a taller atlas, the male's)
+    // moves them left so the row still fits
+    float x0 = left;
+    {
+        const auto& small = fonts->at (type::small);
+        float width = len + 90.0f + 11.0f + juce::GlyphArrangement::getStringWidth (small, scars);
+        for (const auto& label : levels)
+            width += 10.0f + juce::GlyphArrangement::getStringWidth (small, label) + 14.0f;
+        x0 = std::max (14.0f, std::min (left, (float) getWidth() - 14.0f - width));
+    }
     g.setColour (tone::grey (tone::bright));
-    line.h (left, left + len, y);
-    line.v (left, y - 3.0f, y + 3.0f);
-    line.v (left + len, y - 3.0f, y + 3.0f);
+    line.h (x0, x0 + len, y);
+    line.v (x0, y - 3.0f, y + 3.0f);
+    line.v (x0 + len, y - 3.0f, y + 3.0f);
     g.setFont (fonts->at (type::data));
-    g.drawText (microns (um), juce::Rectangle<float> (left + len + 8.0f, y - 8.0f, 80.0f, 16.0f), juce::Justification::centredLeft);
+    g.drawText (microns (um), juce::Rectangle<float> (x0 + len + 8.0f, y - 8.0f, 80.0f, 16.0f), juce::Justification::centredLeft);
 
     // the light's calibration: what each step of grey means
     {
         g.setFont (fonts->at (type::small));
-        float x = left + len + 90.0f;
+        float x = x0 + len + 90.0f;
         auto swatch = [&] (float level, const juce::String& label) {
             g.setColour (tone::grey (level));
             g.fillRect (juce::Rectangle<float> (x, y - 3.0f, 6.0f, 6.0f));
@@ -262,16 +274,15 @@ void Specimen::paintScale (juce::Graphics& g, const Hairline& line)
             g.drawText (label, juce::Rectangle<float> (x + 10.0f, y - 8.0f, w + 2.0f, 16.0f), juce::Justification::centredLeft);
             x += 10.0f + w + 14.0f;
         };
-        swatch (tone::floor, "silent");
-        swatch (tone::dim, "fired this session");
-        swatch (tone::rate (10.0f), "10 Hz");
-        swatch (tone::live, utf8 ("\xe2\x89\xa5 100 Hz"));
+        swatch (tone::floor, levels[0]);
+        swatch (tone::dim, levels[1]);
+        swatch (tone::rate (10.0f), levels[2]);
+        swatch (tone::live, levels[3]);
         // a scar's mark, as the map draws it, settled
         g.setColour (tone::grey (tone::mid));
         g.fillRect (juce::Rectangle<float> (x, y - 0.5f, 7.0f, 1.0f));
         g.fillRect (juce::Rectangle<float> (x + 3.0f, y - 3.5f, 1.0f, 7.0f));
         g.setColour (tone::grey (tone::mid));
-        const auto scars = juce::String (processor.recording.scarTotal()) + (processor.recording.scarTotal() == 1 ? " scar" : " scars");
         g.drawText (scars, juce::Rectangle<float> (x + 11.0f, y - 8.0f, 90.0f, 16.0f), juce::Justification::centredLeft);
     }
 

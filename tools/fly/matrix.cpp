@@ -5,7 +5,7 @@
 // thread's CPU time against the block's own length; with blocks of 32 the brain's 10 ms
 // bookkeeping lands in one block, so read the cost from the larger blocks).
 //
-//   g++ -O3 -march=x86-64-v2 -std=c++20 -I Source tools/fly/matrix.cpp Source/dsp/*.cpp -o build/flymatrix
+//   g++ -O3 -march=x86-64-v2 -std=c++20 -I Source tools/fly/matrix.cpp Source/dsp/*.cpp Source/flies/flywire/FlyData.cpp -o build/flymatrix
 //   build/flymatrix [--quick] [--only name]
 //
 // The material is made here: a kick on the beat (and the bar's accents), hats on the 16ths, a

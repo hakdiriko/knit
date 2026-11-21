@@ -22,9 +22,9 @@ public:
     void resized() override;
     void tick (double nowSeconds); // the window's clock: a press becomes a throw after 80 ms
 
-    // the brain's box in this component, kept at its true aspect (816 x 392.8 um)
+    // the brain's box in this component, kept at its true aspect (the atlas's, FlyWire's is 816 x 392.8 um)
     juce::Rectangle<float> brainArea() const noexcept { return brain; }
-    static constexpr float widthMicrons = 816.0f, heightMicrons = 392.8f; // FlyWire 4 nm voxels, the cut's box
+    static constexpr float widthMicrons = flydata::widthMicrons, heightMicrons = flydata::heightMicrons; // the cut's box
     static constexpr float tipMicrons = 25.0f;                            // the electrode's recording radius
 
     // what the electrode's tip records, measured at the last paint

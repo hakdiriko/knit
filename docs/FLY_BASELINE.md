@@ -7,7 +7,7 @@ Measured 2026-11-16 on the 2.4.3 fly (PR #11 head `70b0278`), with the instrumen
 Re-run:
 
 ```
-g++ -O3 -march=x86-64-v2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp -o build/render
+g++ -O3 -march=x86-64-v2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp Source/flies/flywire/FlyData.cpp -o build/render
 python3 tools/fly/probe/material.py build/material
 python3 tools/fly/probe/brain_share.py run build/material build/baseline
 python3 tools/fly/probe/brain_share.py report build/baseline

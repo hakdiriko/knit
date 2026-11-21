@@ -3,7 +3,7 @@
 Phase 0 of "The fly: second review and plan" (2026-11-16): make "does the brain matter?" a number anyone can re-run. Tools only; the plug-in sounds exactly as before (fly logs are identical with the probes off, and the plug-in never turns them on).
 
 ```
-g++ -O3 -march=x86-64-v2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp -o build/render
+g++ -O3 -march=x86-64-v2 -std=c++20 -I Source tools/render/render.cpp Source/dsp/*.cpp Source/flies/flywire/FlyData.cpp -o build/render
 python3 tools/fly/probe/material.py build/material [--own <folder of Hakan's loops>]
 python3 tools/fly/probe/brain_share.py run build/material build/baseline      # about 30 min on 4 cores
 python3 tools/fly/probe/brain_share.py report build/baseline                  # report.json, report.md
